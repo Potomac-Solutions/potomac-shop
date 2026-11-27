@@ -6,6 +6,7 @@ import { createDrafts } from './drafts.js';
 import { createAccounts } from './accounts.js';
 import { choosePayments, createPayments } from './payments.js';
 import { createPosSync, squareCatalog } from './pos.js';
+import { createShopifySync, shopifyClient } from './shopify.js';
 
 export function createShop({ db, config, now = Date.now, fetch: fetcher = fetch, log = console.log }) {
   const catalog = createCatalog({ db, now });
@@ -28,5 +29,19 @@ export function createShop({ db, config, now = Date.now, fetch: fetcher = fetch,
         log,
       })
     : null;
-  return { db, catalog, accounts, platform, test: platform.test, payments, orders, photos, drafts, pos };
+  // Listing into a Shopify store: SHOPIFY_STORE with a token, or a Dev Dashboard app's client ID and secret.
+  const shopify = env.SHOPIFY_STORE && (env.SHOPIFY_ACCESS_TOKEN || (env.SHOPIFY_CLIENT_ID && env.SHOPIFY_CLIENT_SECRET))
+    ? createShopifySync({
+        db,
+        catalog,
+        client: shopifyClient({ store: env.SHOPIFY_STORE.trim(), token: (env.SHOPIFY_ACCESS_TOKEN ?? '').trim(), clientId: (env.SHOPIFY_CLIENT_ID ?? '').trim(), clientSecret: (env.SHOPIFY_CLIENT_SECRET ?? '').trim(), ...(env.SHOPIFY_API_VERSION ? { version: env.SHOPIFY_API_VERSION.trim() } : {}), fetch: fetcher, now }),
+        locationId: (env.SHOPIFY_LOCATION_ID ?? '').trim(),
+        webhookSecret: (env.SHOPIFY_WEBHOOK_SECRET ?? env.SHOPIFY_CLIENT_SECRET ?? '').trim(),
+        site: config.publicUrl,
+        vendor: config.business,
+        now,
+        log,
+      })
+    : null;
+  return { db, catalog, accounts, platform, test: platform.test, payments, orders, photos, drafts, pos, shopify };
 }

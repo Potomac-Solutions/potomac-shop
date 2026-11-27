@@ -7,12 +7,13 @@ import { fits, fromTitle } from '../domain/fitment.js';
 import { googleFeed, metaFeed, ourCsv, shopifyCsv } from '../domain/exports.js';
 import * as rules from '../domain/items.js';
 import { slugify } from '../domain/text.js';
+import { randomBytes } from 'node:crypto';
 
 const COLUMNS = {
   sku: 'sku', handle: 'handle', title: 'title', description: 'description', priceCents: 'price_cents', compareAtCents: 'compare_at_cents',
   quantity: 'quantity', condition: 'condition', category: 'category', brand: 'brand', mpn: 'mpn', gtin: 'gtin', weightGrams: 'weight_grams',
   images: 'images', fitment: 'fitment', status: 'status', heldUntil: 'held_until', soldCents: 'sold_cents', soldAt: 'sold_at', soldVia: 'sold_via',
-  lotId: 'lot_id', source: 'source',
+  lotId: 'lot_id', source: 'source', sourceRef: 'source_ref',
 };
 const JSON_FIELDS = new Set(['images', 'fitment']);
 
@@ -67,7 +68,7 @@ export function createCatalog({ db, now = Date.now }) {
   const fieldsOf = (draft) => ({
     sku: draft.sku, title: draft.title, description: draft.description, priceCents: draft.priceCents, compareAtCents: draft.compareAtCents,
     quantity: draft.quantity, condition: draft.condition, category: draft.category, brand: draft.brand, mpn: draft.mpn, gtin: draft.gtin,
-    weightGrams: draft.weightGrams, images: draft.images, fitment: draft.fitment, status: draft.status,
+    weightGrams: draft.weightGrams, images: draft.images, fitment: draft.fitment, status: draft.status, sourceRef: draft.sourceRef ?? '',
   });
 
   /** What an import would do, without doing it. */
@@ -103,6 +104,8 @@ export function createCatalog({ db, now = Date.now }) {
           // A held item keeps its hold; the file can't put it back on sale under someone.
           const fields = fieldsOf(draft);
           if (existing.status === 'held') delete fields.status;
+          // A file that doesn't say where a part came from keeps what was known.
+          if (!fields.sourceRef) delete fields.sourceRef;
           update(existing.id, fields, at);
           change.run(batch, existing.id, JSON.stringify(before));
           log.run(at, who, 'imported', existing.id, `Updated from ${plan.source} (row ${draft.row})`);
@@ -213,8 +216,10 @@ export function createCatalog({ db, now = Date.now }) {
     return transaction(db, () => {
       const at = now();
       const handle = freeHandle(fields.title);
-      const sku = fields.sku || `PS-${at.toString(36).toUpperCase()}`;
-      if (bySku.get(sku)) return { error: 'sku-taken' };
+      if (fields.sku && bySku.get(fields.sku)) return { error: 'sku-taken' };
+      // A made-up SKU: the time, and a random tail so two parts saved at once still differ.
+      let sku = fields.sku;
+      while (!sku || bySku.get(sku)) sku = `PS-${at.toString(36).toUpperCase()}${randomBytes(2).toString('hex').toUpperCase()}`;
       const fitment = fields.fitment?.length ? fields.fitment : fromTitle(fields.title);
       const id = insert({ quantity: 1, condition: 'used', images: [], ...fields, fitment, sku, handle, status: 'draft', source: 'manual' }, at);
       log.run(at, who, 'created', id, '');

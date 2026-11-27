@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 (Nov 27, 2026)
+
+A listing tool for a Shopify store, for a business that keeps Shopify as the store buyers see.
+
+- Parts listed here become Shopify products with `productSet`: photos (once, when made), details, price, status, and SKU and stock tracking on the variant's inventory item. Changes are sent every 20 seconds, or at once from Channels.
+- Products already in Shopify are found by their Shopify handle (kept at import, so one part per Shopify variant still finds its product) and only get price and stock; `productSet` is never used on them, since it replaces a product's whole variant list.
+- An order paid on Shopify (`orders/paid`, signed with the app's secret) marks the part sold here, and so at the counter; a check of Shopify's stock every 5 minutes catches missed webhooks. Sold, held, unlisted or removed here is zero on Shopify.
+- Connects with a Dev Dashboard app's client ID and secret (24-hour tokens, fetched again before they run out) or an admin-made app's token.
+- `STOREFRONT_URL` sends buyers from the pages here to the Shopify store.
+- Fixed: two parts saved in the same millisecond got the same made-up SKU.
+
 ## 0.3.0 (Nov 27, 2026)
 
 Two-way stock with Square's point of sale (`POS_SYNC=square`).

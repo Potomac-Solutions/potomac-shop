@@ -11,6 +11,10 @@ The full plan is the "Potomac Shop — Commerce Side App Plan" doc in the Potoma
 - Built like the other demo apps (apex-auto): plain Node 22.13+, built-in SQLite, server-rendered pages that work without script, no dependencies.
 - Shipping rules, Rix as a paying client and sales tax are still open.
 
+## Option: keep Shopify, adopt the listing workflow (added Nov 27, 2026)
+
+Ricky may keep his Shopify store and only take the listing workflow: Potomac Shop for donor cars, phone photos, AI drafts, fitment and pricing; Shopify stays the store buyers see. Built in 0.4.0 (`SHOPIFY_STORE`, `STOREFRONT_URL`). It fixes the bottleneck (listing) without moving the store, and a full move stays open later. To ask Ricky: keep Shopify, or move?
+
 ## Milestones
 
 | Milestone | Gate | Status |

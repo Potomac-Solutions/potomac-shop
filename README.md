@@ -4,7 +4,12 @@ A small commerce engine that runs as a whole store or beside an existing site. I
 
 Shown here as **Rix Racing** (DSM and EVO parts, Morgantown, WV), with Ricky's OK: the demo starts from his real listings in Shopify's export format, so it begins the way a real move off Shopify begins.
 
-## What it does today (0.3.0)
+## Two ways to use it
+
+- **The whole store.** Potomac Shop is the store buyers see: pages, checkout, feeds.
+- **A listing tool for a Shopify store.** The Shopify store stays the store buyers see, and Potomac Shop is where parts are photographed, drafted and priced. Listed parts are published into Shopify; a sale on Shopify, at the counter or here takes the part down everywhere. Set `STOREFRONT_URL` to the Shopify store and the pages here send buyers there.
+
+## What it does today (0.4.0)
 
 - **Import from another store.** Shopify (classic and newer export columns), WooCommerce, BigCommerce, Magento / Adobe Commerce, and our own CSV. The platform is recognised from the header row. A preview shows every row as new, update or skipped (with the reason) before anything changes. Each import is one batch that can be undone, unless something in it changed since.
 - **Sell once.** Draft → listed → on hold → sold, or removed. A sold part leaves the store and the feeds, and no import can bring it back. Holds run out on their own.
@@ -20,7 +25,9 @@ Shown here as **Rix Racing** (DSM and EVO parts, Morgantown, WV), with Ricky's O
 
 - **The counter (Square point of sale).** With `POS_SYNC=square`, listed parts are created in Square's item library (one item per part, rung up by SKU) with their stock. A sale at the counter marks the part sold here, out of the store and the feeds, within seconds by Square's webhook or within 5 minutes by a check of Square's counts. A sale, hold or unlisting here sets the counter's stock to zero. A restock at the counter raises the quantity of a listed part. Titles and prices are set here and overwrite edits made in Square.
 
-Square's code (payments and the counter) follows Square's API reference and is tested against a faked Square; run a sandbox payment, refund and counter sale before using it for real.
+- **Shopify.** With `SHOPIFY_STORE` and an app's credentials, parts listed here become Shopify products (photos, details, price, SKU, stock). Products already in Shopify (imported from its CSV) are matched by their Shopify handle and only get price and stock from here, so nothing made in Shopify is rewritten or duplicated. An order paid on Shopify (its `orders/paid` webhook, or a check of Shopify's stock every 5 minutes) marks the part sold here and at the counter.
+
+Shopify's code was written from Shopify's GraphQL Admin API reference and tested against a faked Shopify; try it on a development store first. Square's code (payments and the counter) follows Square's API reference and is tested against a faked Square; run a sandbox payment, refund and counter sale before using it for real.
 
 Not yet: eBay Motors, Clover, buyer accounts, shipping rates. See `docs/plan.md`.
 
@@ -50,6 +57,10 @@ The dashboard is at `/admin`. A new store prints a one-time link for the first o
 | `PAY_PROVIDER` | `square`; unset, or Square's settings incomplete, means the test payment page |
 | `PAY_SQUARE_TOKEN`, `PAY_SQUARE_LOCATION`, `PAY_SQUARE_WEBHOOK_KEY`, `PAY_SQUARE_WEBHOOK_URL`, `PAY_SQUARE_SANDBOX` | Square's access token, location, webhook signature key and the webhook address (`<PUBLIC_URL>/pay/webhook`); `PAY_SQUARE_SANDBOX=1` for Square's sandbox |
 | `POS_SYNC` | `square` keeps stock in step with Square's point of sale, on the same Square settings. The access token needs item and inventory read and write permissions; subscribe the webhook to `payment.updated` and `inventory.count.updated` |
+| `SHOPIFY_STORE` | The Shopify store's `*.myshopify.com` address, to list into |
+| `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` | A Shopify Dev Dashboard app in the store's own organization, with product and inventory read and write permissions. The store gets its own 24-hour access tokens with them. (Or `SHOPIFY_ACCESS_TOKEN` from an app made in the Shopify admin before 2026.) |
+| `SHOPIFY_LOCATION_ID`, `SHOPIFY_API_VERSION`, `SHOPIFY_WEBHOOK_SECRET` | The location stock is kept at (default: the store's first), the API version (`2026-10`), and the webhook secret (default: the client secret). Point Shopify's *Order payment* webhook at `<PUBLIC_URL>/shopify/webhook` |
+| `STOREFRONT_URL` | Listing-tool mode: the store buyers see (the Shopify store). The pages here redirect there, by product handle |
 | `ANTHROPIC_API_KEY` | Turns on AI drafts |
 | `AI_MODEL`, `AI_MONTHLY_DOLLARS`, `AI_INPUT_PER_MTOK`, `AI_OUTPUT_PER_MTOK` | The model (`claude-haiku-5-5`), the monthly budget ($10), and its price per million tokens (set these to the model's real price) |
 | `DATABASE_PATH` | SQLite file; point it at a volume (`data/potomac-shop.db`) |
