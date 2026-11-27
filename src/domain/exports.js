@@ -77,7 +77,7 @@ export function googleFeed(items, { site, currency = 'USD', now = Date.now() }) 
   const header = ['id', 'title', 'description', 'link', 'image_link', 'additional_image_link', 'availability', 'price', 'sale_price', 'condition', 'brand', 'mpn', 'gtin', 'identifier_exists', 'product_type', 'shipping_weight'];
   const lines = items
     .filter((item) => item.status === 'active' || item.status === 'held' || item.status === 'sold')
-    .map((item) => ({ ...item, images: webImages(item.images) }))
+    .map((item) => ({ ...item, images: webImages(item.images).map((src) => (src.startsWith('/') ? `${site}${src}` : src)) }))
     .filter((item) => item.images.length > 0)
     .map((item) => {
       const sale = item.compareAtCents != null;
@@ -109,7 +109,7 @@ export function metaFeed(items, { site, business, currency = 'USD', now = Date.n
   const header = ['id', 'title', 'description', 'availability', 'condition', 'price', 'sale_price', 'link', 'image_link', 'additional_image_link', 'brand', 'mpn', 'gtin', 'product_type'];
   const rows = items
     .filter((item) => item.status === 'active' || item.status === 'held' || item.status === 'sold')
-    .map((item) => ({ ...item, images: webImages(item.images) }))
+    .map((item) => ({ ...item, images: webImages(item.images).map((src) => (src.startsWith('/') ? `${site}${src}` : src)) }))
     .filter((item) => item.images.length > 0)
     .map((item) => {
       const sale = item.compareAtCents != null;

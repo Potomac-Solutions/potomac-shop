@@ -29,6 +29,8 @@ const toColumnValue = (field, value) => (JSON_FIELDS.has(field) ? JSON.stringify
 const ACTIONS = { publish: rules.publish, unpublish: rules.unpublish, hold: rules.hold, release: rules.release, sell: rules.sell, archive: rules.archive, restore: rules.restore };
 
 export function createCatalog({ db, now = Date.now }) {
+  // A caller already inside a transaction (an order) passes `nested` so its step joins that one.
+  const tx = (nested, work) => (nested ? work() : transaction(db, work));
   const select = `SELECT items.*, lots.name AS lot_name FROM items LEFT JOIN lots ON lots.id = items.lot_id`;
   const byId = db.prepare(`${select} WHERE items.id = ?`);
   const bySku = db.prepare(`${select} WHERE items.sku = ?`);
@@ -172,10 +174,10 @@ export function createCatalog({ db, now = Date.now }) {
   }
 
   /** Apply one of the domain's actions to an item: publish, hold, sell, archive... */
-  function act(id, action, args = {}, { who = 'owner' } = {}) {
+  function act(id, action, args = {}, { who = 'owner', nested = false } = {}) {
     const rule = ACTIONS[action];
     if (!rule) return { error: 'unknown-action' };
-    return transaction(db, () => {
+    return tx(nested, () => {
       sweepHolds();
       const item = itemFromRow(byId.get(id));
       if (!item) return { error: 'not-found' };
@@ -188,13 +190,13 @@ export function createCatalog({ db, now = Date.now }) {
   }
 
   /** Change what an item says: title, price, stock, fitment and the rest. Status changes go through `act`. */
-  function edit(id, fields, { who = 'owner' } = {}) {
+  function edit(id, fields, { who = 'owner', nested = false } = {}) {
     const allowed = ['title', 'description', 'priceCents', 'compareAtCents', 'quantity', 'condition', 'category', 'brand', 'mpn', 'gtin', 'weightGrams', 'images', 'fitment', 'lotId'];
     const patch = Object.fromEntries(Object.entries(fields).filter(([k]) => allowed.includes(k)));
     if (patch.title != null && !String(patch.title).trim()) return { error: 'no-title' };
     if (patch.priceCents != null && (!Number.isInteger(patch.priceCents) || patch.priceCents < 0)) return { error: 'bad-price' };
     if (patch.quantity != null && (!Number.isInteger(patch.quantity) || patch.quantity < 0)) return { error: 'bad-quantity' };
-    return transaction(db, () => {
+    return tx(nested, () => {
       const item = itemFromRow(byId.get(id));
       if (!item) return { error: 'not-found' };
       update(id, patch, now());
