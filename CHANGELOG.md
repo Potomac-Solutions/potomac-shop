@@ -8,6 +8,7 @@ Payments, the cart and checkout run on the Potomac kit.
 - Sizes: an item's sizes each have their own price and stock; owners add them on the item's page. Made-to-order items never run out. Listing an item with sizes or made to order doesn't need stock of its own.
 - Orders are the kit's (`kit/stages`): paid → packed → sent, moved from the Orders page. The old single-part `orders` table stays for history.
 - The kit's `items` are the store's own `items` table (`shopStore`): the kit only ever changes an item's count.
+- Print on demand through `kit/fulfill` (migration 005): an item says who makes it (the store, Printful or Lulu), what the printer knows it by, and what the printer charges. Checkout asks for a US street address when shipping, shows the printers' shipping before paying (`price-changed` if it moved), and makes one order per maker. Printers' orders wait for the owner's OK (or `MAKER_AUTO=1`), are sent once, and come back with tracking through `/makers/printful`, `/makers/lulu` or the sweep. The demo plays both printers.
 
 - Checkout uses `kit/pay` and `kit/pay/providers`: Stripe, Square, PayPal, Authorize.net and Clover behind `PAY_PROVIDER`, the kit's test page until that platform is set up. Replaces the store's own Square code.
 - The kit's payments live in the store's database (`kit_documents`, migration 003); payments started before this release move over and still settle and refund.

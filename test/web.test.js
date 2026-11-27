@@ -135,12 +135,15 @@ test('an owner moves a paid order along: packed, then sent', async () => {
   const [order] = shop.sales.list().filter((one) => one.state === 'paid');
   const page = await (await fetch(`${base}/admin/orders`, { headers: { cookie } })).text();
   assert.match(page, /Mark packed/);
-  assert.equal((await post(`/admin/orders/${order.key}/packed`, { token }, cookie)).status, 303);
+  const step = (to) => post('/admin/orders/step', { token, order: order.key, to }, cookie);
+  assert.equal((await step('packed')).status, 303);
   assert.equal(shop.sales.get(order.key).step, 'packed');
-  await post(`/admin/orders/${order.key}/packed`, { token }, cookie);
+  await step('packed');
   assert.equal(shop.sales.get(order.key).step, 'packed', 'a step is taken once');
-  await post(`/admin/orders/${order.key}/sent`, { token }, cookie);
+  assert.match((await step('make')).headers.get('location'), /problem=/, 'the store’s own order isn’t a printer’s');
+  await step('sent');
   assert.equal(shop.sales.get(order.key).step, 'sent');
+  assert.match((await post('/admin/orders/step', { token, order: '../x', to: 'sent' }, cookie)).headers.get('location'), /problem=/);
 });
 
 test('a notice can only carry words the server signed', async () => {

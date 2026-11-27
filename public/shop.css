@@ -178,3 +178,7 @@ label.check input { width: auto; min-height: 0; }
   .cart-line { grid-template-columns: 4.5rem 1fr; }
   .cart-line .qty-form, .cart-line .line-total { grid-column: 2; }
 }
+.order-parts { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 0.4rem; }
+.order-parts li { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.cart-summary li.total { border-bottom: 0; padding-top: 0.7rem; }
+fieldset.address legend, fieldset.maker legend { font-weight: 600; margin-bottom: 0.3rem; }

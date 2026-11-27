@@ -13,6 +13,7 @@ const COLUMNS = {
   quantity: 'quantity', condition: 'condition', category: 'category', brand: 'brand', mpn: 'mpn', gtin: 'gtin', weightGrams: 'weight_grams',
   images: 'images', fitment: 'fitment', status: 'status', heldUntil: 'held_until', soldCents: 'sold_cents', soldAt: 'sold_at', soldVia: 'sold_via',
   lotId: 'lot_id', source: 'source', parentId: 'parent_id', option: 'option_label', madeToOrder: 'made_to_order',
+  maker: 'maker', makerRef: 'maker_ref', costCents: 'cost_cents',
 };
 const JSON_FIELDS = new Set(['images', 'fitment']);
 
@@ -25,7 +26,10 @@ export function itemFromRow(row) {
   return item;
 }
 
-const toColumnValue = (field, value) => (JSON_FIELDS.has(field) ? JSON.stringify(value ?? []) : field === 'madeToOrder' ? (value ? 1 : 0) : field === 'option' ? String(value ?? '') : value ?? null);
+const toColumnValue = (field, value) => (JSON_FIELDS.has(field) ? JSON.stringify(value ?? []) : field === 'madeToOrder' ? (value ? 1 : 0) : field === 'option' || field === 'maker' || field === 'makerRef' ? String(value ?? '') : value ?? null);
+
+/** Who can make an item: '' is the store itself. */
+export const MAKERS = ['', 'printful', 'lulu'];
 
 const ACTIONS = { publish: rules.publish, unpublish: rules.unpublish, hold: rules.hold, release: rules.release, sell: rules.sell, soldOnline: rules.soldOnline, archive: rules.archive, restore: rules.restore };
 
@@ -191,7 +195,7 @@ export function createCatalog({ db, now = Date.now }) {
    * Add a size (or any option) to an item: its own stock and price, the item's title, photos and
    * words. It is on sale whenever the item is.
    */
-  function addSize(parentId, { option, priceCents, quantity = 0, madeToOrder = false, sku = '' }, { who = 'owner' } = {}) {
+  function addSize(parentId, { option, priceCents, quantity = 0, madeToOrder = false, sku = '', makerRef = '' }, { who = 'owner' } = {}) {
     const label = String(option ?? '').trim().slice(0, 40);
     if (!label) return { error: 'no-option' };
     if (!Number.isInteger(priceCents) || priceCents < 0) return { error: 'bad-price' };
@@ -204,7 +208,7 @@ export function createCatalog({ db, now = Date.now }) {
       const at = now();
       const code = sku || `${parent.sku}-${slugify(label).toUpperCase() || at.toString(36).toUpperCase()}`;
       if (bySku.get(code)) return { error: 'sku-taken' };
-      const id = insert({ sku: code, handle: freeHandle(`${parent.handle}-${label}`), title: parent.title, description: '', priceCents, quantity, condition: parent.condition, category: parent.category, brand: parent.brand, images: [], fitment: [], status: 'active', source: 'manual', parentId, option: label, madeToOrder }, at);
+      const id = insert({ sku: code, handle: freeHandle(`${parent.handle}-${label}`), title: parent.title, description: '', priceCents, quantity, condition: parent.condition, category: parent.category, brand: parent.brand, images: [], fitment: [], status: 'active', source: 'manual', parentId, option: label, madeToOrder: madeToOrder || Boolean(parent.maker), maker: parent.maker, makerRef: String(makerRef ?? '').trim(), costCents: parent.costCents }, at);
       log.run(at, who, 'size added', parentId, label);
       return { ok: true, item: itemFromRow(byId.get(id)) };
     });
@@ -229,15 +233,21 @@ export function createCatalog({ db, now = Date.now }) {
 
   /** Change what an item says: title, price, stock, fitment and the rest. Status changes go through `act`. */
   function edit(id, fields, { who = 'owner', nested = false } = {}) {
-    const allowed = ['title', 'description', 'priceCents', 'compareAtCents', 'quantity', 'condition', 'category', 'brand', 'mpn', 'gtin', 'weightGrams', 'images', 'fitment', 'lotId', 'option', 'madeToOrder'];
+    const allowed = ['title', 'description', 'priceCents', 'compareAtCents', 'quantity', 'condition', 'category', 'brand', 'mpn', 'gtin', 'weightGrams', 'images', 'fitment', 'lotId', 'option', 'madeToOrder', 'maker', 'makerRef', 'costCents'];
     const patch = Object.fromEntries(Object.entries(fields).filter(([k]) => allowed.includes(k)));
     if (patch.title != null && !String(patch.title).trim()) return { error: 'no-title' };
     if (patch.priceCents != null && (!Number.isInteger(patch.priceCents) || patch.priceCents < 0)) return { error: 'bad-price' };
     if (patch.quantity != null && (!Number.isInteger(patch.quantity) || patch.quantity < 0)) return { error: 'bad-quantity' };
+    if (patch.maker != null && !MAKERS.includes(patch.maker)) return { error: 'bad-maker' };
+    if (patch.costCents != null && (!Number.isInteger(patch.costCents) || patch.costCents < 0)) return { error: 'bad-price' };
+    // Printed when bought: a maker's item never runs out.
+    if (patch.maker) patch.madeToOrder = true;
     return tx(nested, () => {
       const item = itemFromRow(byId.get(id));
       if (!item) return { error: 'not-found' };
       update(id, patch, now());
+      // An item's sizes are made by whoever makes the item.
+      if ('maker' in patch) db.prepare("UPDATE items SET maker = ?, made_to_order = CASE WHEN ? <> '' THEN 1 ELSE made_to_order END, updated_at = ? WHERE parent_id = ?").run(patch.maker, patch.maker, now(), id);
       log.run(now(), who, 'edited', id, Object.keys(patch).join(', '));
       return { ok: true, item: itemFromRow(byId.get(id)) };
     });
@@ -248,6 +258,8 @@ export function createCatalog({ db, now = Date.now }) {
     if (!String(fields.title ?? '').trim()) return { error: 'no-title' };
     if (!Number.isInteger(fields.priceCents) || fields.priceCents < 0) return { error: 'bad-price' };
     if (fields.quantity != null && (!Number.isInteger(fields.quantity) || fields.quantity < 0)) return { error: 'bad-quantity' };
+    if (fields.maker != null && !MAKERS.includes(fields.maker)) return { error: 'bad-maker' };
+    if (fields.maker) fields = { ...fields, madeToOrder: true };
     return transaction(db, () => {
       const at = now();
       const handle = freeHandle(fields.title);

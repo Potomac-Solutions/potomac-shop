@@ -15,13 +15,14 @@ Shown here as **Rix Racing** (DSM and EVO parts, Morgantown, WV), with Ricky's O
 - **Phone-first dashboard.** What's waiting, what's listed, on hold and sold, what needs a photo or fitment, orders to fill, and recent activity.
 - **Cart and checkout.** Buyers add parts, or a size of a shirt or hat, to a cart and check out once. Checking out takes the stock for every line at once (two buyers can't both get the last one), holds it for 30 minutes and sends the buyer to the payment platform's own page (Stripe Checkout, a Square payment link, PayPal and the others the kit supports, chosen by `PAY_PROVIDER`; the kit's test page until that platform's settings are set). No card number reaches the store. Paid: a one-of-a-kind part is sold everywhere and the order waits to be packed and sent. Backed out or never paid: the stock goes back. Paid after the hold ran out and the part sold at the counter: the payment is refunded and the order says so. Pickup, or shipping quoted afterwards.
 - **Sizes and made to order.** An item can have sizes (S, M, L; 7¼, 7½), each with its own price and stock; the store lists the item and the buyer picks a size. A made-to-order item (printed when bought) has no stock count and never runs out.
+- **Print on demand.** An item can be made by Printful (shirts, hats, stickers) or Lulu (a book) instead of the store. The buyer gives a US shipping address and sees the printer's own shipping to it before paying; each printer's part of a cart becomes its own order. A paid printer's order waits for the owner's OK on the Orders page (or goes at once with `MAKER_AUTO=1`), goes to the printer once, and its tracking comes back by the printer's webhook or the two-minute sweep. Through `kit/fulfill`.
 - **Staff accounts.** An owner and the people they invite, by one-time links. Owners do everything; helpers photograph and draft parts but can't list, sell, change listed parts, import or see orders. Passwords are scrypt hashes; only hashes of sessions and links are stored; five wrong tries lock that device out of that email for 15 minutes.
 - **Photos from the phone.** Taken or chosen on the part's page, kept with the database, served at `/media/…`. HEIC is refused with how to fix it (iPhone converts when choosing from Photos).
 - **AI drafts.** "Draft it with AI" sends the part's photos, the donor car and the owner's notes to Claude, and fills in the title (in the shop's own style), details, category and fitment. Drafts only, the price is never touched, and a monthly budget stops it.
 
 Payments run on the Potomac kit (`kit/pay`): it makes sure an order is paid once, at the amount asked, and speaks to each platform. The platforms' code follows their published APIs and is tested against fakes; run a sandbox payment before taking real money.
 
-Not yet: eBay Motors, Square and Clover stock sync, buyer accounts, shipping rates, sizes in imports and exports. See `docs/plan.md`.
+Not yet: eBay Motors, Square and Clover stock sync, buyer accounts, shipping rates for what the store ships itself, emails to buyers (tracking shows on their order page), sizes in imports and exports, addresses outside the US. See `docs/plan.md`.
 
 WooCommerce, BigCommerce and Magento follow their documented export columns and have tests against sample files, but no real export from each has been through them yet.
 
@@ -50,6 +51,9 @@ The dashboard is at `/admin`. A new store prints a one-time link for the first o
 | `PAY_STRIPE_KEY`, `PAY_STRIPE_WEBHOOK_SECRET` | Stripe's secret key (`sk_test_…` is the sandbox) and the webhook's signing secret; subscribe the webhook to `checkout.session.completed` and `checkout.session.async_payment_succeeded` |
 | `PAY_SQUARE_TOKEN`, `PAY_SQUARE_LOCATION`, `PAY_SQUARE_WEBHOOK_KEY`, `PAY_SQUARE_WEBHOOK_URL`, `PAY_SQUARE_SANDBOX` | Square's access token, location, webhook signature key and the webhook address; `PAY_SQUARE_SANDBOX=1` for Square's sandbox |
 | Other platforms | The kit's `PAY_PAYPAL_*`, `PAY_AUTHORIZENET_*` and `PAY_CLOVER_*` settings (its README, "Paying on a platform's page"). Helcim pays in a frame this store doesn't serve yet |
+| `MAKER_PRINTFUL_TOKEN`, `MAKER_PRINTFUL_STORE` | Printful: a private token with orders and store access, and the store id when the token covers more than one. Point a webhook at `<PUBLIC_URL>/makers/printful` (package shipped, order failed, canceled, on hold) |
+| `MAKER_LULU_KEY`, `MAKER_LULU_SECRET`, `MAKER_LULU_SANDBOX` | Lulu's client key and secret (`MAKER_LULU_SANDBOX=1` for Lulu's sandbox). Webhook: `<PUBLIC_URL>/makers/lulu`, topic `PRINT_JOB_STATUS_CHANGED` |
+| `MAKER_AUTO` | `1` sends a paid printer's order at once instead of waiting for the owner's OK |
 | `ANTHROPIC_API_KEY` | Turns on AI drafts |
 | `AI_MODEL`, `AI_MONTHLY_DOLLARS`, `AI_INPUT_PER_MTOK`, `AI_OUTPUT_PER_MTOK` | The model (`claude-haiku-5-5`), the monthly budget ($10), and its price per million tokens (set these to the model's real price) |
 | `DATABASE_PATH` | SQLite file; point it at a volume (`data/potomac-shop.db`) |

@@ -122,6 +122,7 @@ function addToCart(item, ask) {
   const most = (one) => (one.madeToOrder ? 20 : Math.min(20, one.quantity));
   const many = sizes.length ? sizes.some((one) => most(one) > 1) : most(item) > 1;
   return html`${sizes.length ? '' : html`<p class="stock">${stockWords(item)}</p>`}
+${item.maker ? html`<p class="quiet">Printed when you order and shipped to you from the printer.</p>` : ''}
 <form method="post" action="/cart/add" class="add-form">
   ${sizes.length
     ? html`<label>Size<select name="item" required>${sizes.map((one) => html`<option value="${one.handle}" ${most(one) < 1 ? raw('disabled') : ''}>${one.option} · ${money(one.priceCents)}${most(one) < 1 ? ' · sold out' : one.madeToOrder ? '' : ` · ${one.quantity} left`}</option>`)}</select></label>`
@@ -184,7 +185,15 @@ export function notFoundPage({ config }) {
 export const SAY_BUYER = {
   'no-name': 'Add your name.',
   'bad-email': 'That email doesn’t look right.',
-  'no-address': 'Add the address to ship it to.',
+  'no-address': 'Add the street address and town to ship it to.',
+  'bad-state': 'Pick the state.',
+  'bad-zip': 'That ZIP code doesn’t look right.',
+  'no-phone': 'Add a phone number: the printer needs one to ship.',
+  'must-ship': 'Some of this is printed when you order and shipped from the printer, so it can’t be picked up. Choose shipping.',
+  'bad-address': 'The printer couldn’t ship to that address. Check it and try again.',
+  'no-shipping': 'The printer couldn’t quote shipping to that address. Check it, or ask us.',
+  'maker-unavailable': 'Something in your cart can’t be ordered online right now. Ask us about it.',
+  'price-changed': 'Shipping changed since you looked. Here’s the new total.',
   gone: 'Something in your cart just sold, or someone is paying for the last one right now. Your cart shows what’s left.',
   'sold-out': 'There aren’t that many left.',
   'too-many': 'That’s more than one order can take. Ask us about a bigger order.',
@@ -225,9 +234,13 @@ export function cartPage({ config, cart, problem = '' }) {
   });
 }
 
-/** Who's buying, and pickup or shipping. Then on to the payment platform's own page. */
+const US_STATES = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'PR', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'];
+const BUYER_FIELDS = ['name', 'email', 'phone', 'delivery', 'street1', 'street2', 'city', 'state', 'zip'];
+
+/** Who's buying, and pickup or shipping. Made-to-order lines are shipped by their printer, so they can't be picked up. */
 export function checkoutPage({ config, cart, key, platform, problem = '', form = {} }) {
   const value = (name) => form[name] ?? '';
+  const ship = cart.made || value('delivery') === 'ship';
   return storeLayout({
     config,
     title: 'Checkout',
@@ -240,28 +253,71 @@ export function checkoutPage({ config, cart, key, platform, problem = '', form =
     <input type="hidden" name="checkout" value="${key}">
     <label>Your name<input name="name" value="${value('name')}" autocomplete="name" required maxlength="100"></label>
     <label>Email<input type="email" name="email" value="${value('email')}" autocomplete="email" required></label>
-    <label>Phone (for pickup or a shipping question)<input type="tel" name="phone" value="${value('phone')}" autocomplete="tel"></label>
+    <label>Phone${cart.made ? '' : ' (for pickup or a shipping question)'}<input type="tel" name="phone" value="${value('phone')}" autocomplete="tel" ${cart.made ? raw('required') : ''}></label>
     <fieldset class="choice">
       <legend>How you’ll get it</legend>
-      <label class="radio"><input type="radio" name="delivery" value="pickup" ${value('delivery') !== 'ship' ? raw('checked') : ''}> Pick it up in ${config.place}</label>
-      <label class="radio"><input type="radio" name="delivery" value="ship" ${value('delivery') === 'ship' ? raw('checked') : ''}> Ship it to me</label>
+      ${cart.made ? html`<p class="hint">Printed when you order and shipped to you from the printer.</p><input type="hidden" name="delivery" value="ship">` : html`
+      <label class="radio"><input type="radio" name="delivery" value="pickup" ${ship ? '' : raw('checked')}> Pick it up in ${config.place}</label>
+      <label class="radio"><input type="radio" name="delivery" value="ship" ${ship ? raw('checked') : ''}> Ship it to me</label>`}
     </fieldset>
-    <label>Shipping address (only if shipping)<textarea name="address" rows="3" autocomplete="street-address">${value('address')}</textarea></label>
-    <p class="hint">Shipping is quoted before it goes out: we’ll text or email you the cost. You pay for what’s in the cart now; it’s held for you.</p>
-    <button type="submit" class="primary">Pay ${money(cart.cents)}</button>
-    <p class="quiet">${platform.name === 'test' ? 'Demo: you’ll go to a test payment page. No card is asked for and no money moves.' : 'You’ll pay on a secure payment page; your card never touches this site.'} Everything in your cart is held for 30 minutes while you pay.</p>
+    <fieldset class="plain address">
+      <legend>${cart.made ? 'Ship to' : 'Shipping address (only if shipping)'}</legend>
+      <label>Street<input name="street1" value="${value('street1')}" autocomplete="address-line1" ${cart.made ? raw('required') : ''}></label>
+      <label>Apartment, suite (optional)<input name="street2" value="${value('street2')}" autocomplete="address-line2"></label>
+      <div class="cols">
+        <label>Town<input name="city" value="${value('city')}" autocomplete="address-level2" ${cart.made ? raw('required') : ''}></label>
+        <label>State<select name="state" autocomplete="address-level1"><option value="">State</option>${US_STATES.map((one) => html`<option ${value('state') === one ? raw('selected') : ''}>${one}</option>`)}</select></label>
+        <label>ZIP<input name="zip" value="${value('zip')}" autocomplete="postal-code" inputmode="numeric" maxlength="10" ${cart.made ? raw('required') : ''}></label>
+      </div>
+    </fieldset>
+    ${cart.made ? html`<p class="hint">Next you’ll see the printer’s shipping to your address before you pay.</p>
+    <button type="submit" class="primary" name="step" value="review">See shipping and total</button>` : html`<p class="hint">Shipping is quoted before it goes out: we’ll text or email you the cost. You pay for what’s in the cart now; it’s held for you.</p>
+    <button type="submit" class="primary" name="step" value="pay">Pay ${money(cart.cents)}</button>
+    <p class="quiet">${platform.name === 'test' ? 'Demo: you’ll go to a test payment page. No card is asked for and no money moves.' : 'You’ll pay on a secure payment page; your card never touches this site.'} Everything in your cart is held for 30 minutes while you pay.</p>`}
   </form>` : html`<p><a href="/cart">Back to your cart</a></p>`}
 </section>`,
   });
 }
 
+/** The cart, the printer's shipping to the buyer's address, and the total: then Pay. */
+export function reviewPage({ config, cart, review, key, platform, form = {}, problem = '' }) {
+  const days = (one) => (one.days?.min && one.days?.max ? ` · arrives in ${one.days.min}–${one.days.max} days` : '');
+  return storeLayout({
+    config,
+    title: 'Check and pay',
+    body: html`<section class="section checkout">
+  <p class="eyebrow">Checkout</p>
+  <h1>Check and pay</h1>
+  ${problem ? html`<p class="problem" role="alert">${problem}</p>` : ''}
+  <ul class="cart-summary">
+    ${cart.lines.map((line) => html`<li>${line.qty} × ${lineName(line)} <span>${money(line.total)}</span></li>`)}
+    ${review.shipping.map((one) => html`<li>Shipping from ${one.group === 'lulu' ? 'Lulu' : one.group === 'printful' ? 'Printful' : one.group}: ${one.label}${days(one)} <span>${money(one.cents)}</span></li>`)}
+    <li class="total"><strong>Total</strong> <strong>${money(review.cents)}</strong></li>
+  </ul>
+  <p>Shipping to ${review.buyer.name}, ${review.buyer.address}.</p>
+  <form method="post" action="/checkout" class="panel">
+    <input type="hidden" name="checkout" value="${key}">
+    <input type="hidden" name="expect" value="${review.cents}">
+    ${BUYER_FIELDS.map((name) => html`<input type="hidden" name="${name}" value="${form[name] ?? ''}">`)}
+    <button type="submit" class="primary" name="step" value="pay">Pay ${money(review.cents)}</button>
+    <button type="submit" class="ghost" name="step" value="edit">Change the address</button>
+    <p class="quiet">${platform.name === 'test' ? 'Demo: you’ll go to a test payment page. No card is asked for and no money moves.' : 'You’ll pay on a secure payment page; your card never touches this site.'} Everything in your cart is held for 30 minutes while you pay.</p>
+  </form>
+</section>`,
+  });
+}
+
+const tracking = (shipments) => html`${shipments.map((one) => html`<p>Tracking${one.carrier ? ` (${one.carrier})` : ''}: ${one.url ? html`<a href="${one.url}" rel="noopener noreferrer">${one.tracking || 'follow it'}</a>` : one.tracking}</p>`)}`;
+
 /** After paying (or not): what happened to the order, in plain words. */
 export function orderPage({ config, order, waiting = false }) {
-  const list = html`<ul class="cart-summary">${order.lines.map((line) => html`<li>${line.qty} × ${lineName(line)} <span>${money(line.total)}</span></li>`)}</ul>`;
+  const list = html`<ul class="cart-summary">${order.lines.map((line) => html`<li>${line.qty} × ${lineName(line)} <span>${money(line.total)}</span></li>`)}${(order.fees ?? []).map((fee) => html`<li>${fee.label} <span>${money(fee.cents)}</span></li>`)}</ul>`;
   const cancel = `/checkout/cancel?checkout=${encodeURIComponent(order.key)}`;
   const states = {
     paid: html`<h1>It’s yours</h1>${list}<p>You paid ${money(order.cents)}. A receipt comes from the payment platform.</p>
-      <p>${order.delivery === 'pickup' ? html`We’ll get in touch at ${order.email} to set a pickup time in ${config.place}.` : html`We’ll email ${order.email} the shipping cost before it goes out.`}</p>`,
+      ${(order.orders ?? []).map((one) => one.maker
+        ? html`<p>${one.step === 'sent' ? html`Shipped from the printer.` : html`Being printed and shipped to ${order.address}: it’ll leave the printer within a few days.`} <span class="quiet">(${one.lines.map((line) => `${line.qty} × ${line.title}${line.option ? ` (${line.option})` : ''}`).join(', ')})</span></p>${tracking(one.shipments)}`
+        : html`<p>${order.delivery === 'pickup' ? html`We’ll get in touch at ${order.email} to set a pickup time in ${config.place}.` : one.step === 'sent' ? html`We’ve sent it.` : html`We’ll email ${order.email} the shipping cost before it goes out.`}</p>${tracking(one.shipments)}`)}`,
     paying: waiting
       ? html`<h1>Waiting on the payment</h1>${list}<p>We haven’t heard from the payment page yet. If you paid, this usually takes a few seconds: <a href="/orders/${order.key}">check again</a>.</p><p>It stays held for you for 30 minutes. <a href="${cancel}">Cancel and let it go</a>.</p>`
       : html`<h1>Not paid yet</h1>${list}<p><a href="/orders/${order.key}">Check again</a>, or <a href="${cancel}">let it go</a>.</p>`,

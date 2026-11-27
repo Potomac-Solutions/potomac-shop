@@ -16,6 +16,6 @@
     "test": "node --test --test-concurrency=1 \"test/**/*.test.js\""
   },
   "dependencies": {
-    "@potomac-solutions/kit": "github:Potomac-Solutions/potomac-kit#b0503b9f6caeb40106422564c93ae278d1ca427a"
+    "@potomac-solutions/kit": "github:Potomac-Solutions/potomac-kit#fe726047ce65c59ac41ea6c7c137f0099605e99f"
   }
 }

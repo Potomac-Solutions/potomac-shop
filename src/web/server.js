@@ -88,7 +88,22 @@ export function createWeb({ shop, config, now = Date.now }) {
       fitment: fitmentText ? fromColumn(fitmentText) : fromTitle(title),
       lotId: Number(form.get('lot')) || null,
       madeToOrder: form.get('made_to_order') === 'on',
+      ...makerOf(form),
     };
+  }
+
+  /** Who makes an item, from the item form: the store, Printful (a variant id) or Lulu (the book). */
+  function makerOf(form) {
+    const maker = ['printful', 'lulu'].includes(form.get('maker')) ? form.get('maker') : '';
+    const cost = toCents(form.get('cost'));
+    const costCents = cost == null ? null : cost;
+    if (maker === 'printful') return { maker, makerRef: (form.get('printful_variant') ?? '').replace(/\D/g, '').slice(0, 20), costCents };
+    if (maker === 'lulu') {
+      const https = (name) => (/^https:\/\/\S+$/.test(form.get(name)?.trim() ?? '') ? form.get(name).trim() : '');
+      const book = { pod_package_id: (form.get('lulu_package') ?? '').trim().toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 27), cover: https('lulu_cover'), interior: https('lulu_interior'), page_count: Number(form.get('lulu_pages')) || 0 };
+      return { maker, makerRef: book.pod_package_id && book.cover && book.interior && book.page_count ? JSON.stringify(book) : '', costCents };
+    }
+    return { maker: '', makerRef: '', costCents };
   }
 
   function vehicleFilter(url) {
@@ -147,11 +162,23 @@ export function createWeb({ shop, config, now = Date.now }) {
         if (crossSite(req)) return refuseCrossSite(res);
         const form = Object.fromEntries(await formOf(req));
         const key = isCheckoutKey(form.checkout) ? form.checkout : newCheckoutKey();
-        const started = owner ? await sales.start(owner, form, { key }) : { error: 'empty' };
-        if (started.error) {
-          if (started.error === 'gone' || started.error === 'empty') return done(res, '/cart', store.SAY_BUYER[started.error], 'problem');
-          return page(res, store.checkoutPage({ config, cart: sales.cart(owner), key, platform, problem: store.SAY_BUYER[started.error] ?? 'That didn’t work. Try again.', form }), 422);
+        const say = (error) => store.SAY_BUYER[error] ?? 'That didn’t work. Try again.';
+        const back = (error) => page(res, store.checkoutPage({ config, cart: sales.cart(owner ?? ''), key, platform, problem: error ? say(error) : '', form }), error ? 422 : 200);
+        if (!owner) return done(res, '/cart', say('empty'), 'problem');
+        if (form.step === 'edit') return back('');
+        // Made-to-order lines: show the printer's shipping and the total before paying.
+        if (form.step === 'review') {
+          const review = await sales.review(owner, form);
+          if (review.error === 'gone' || review.error === 'empty') return done(res, '/cart', say(review.error), 'problem');
+          if (review.error) return back(review.error);
+          return page(res, store.reviewPage({ config, cart: sales.cart(owner), review, key, platform, form }));
         }
+        const expect = /^\d{1,9}$/.test(form.expect ?? '') ? Number(form.expect) : null;
+        if (expect === null && sales.cart(owner).made) return back('price-changed');
+        const started = await sales.start(owner, form, { key, expect });
+        if (started.error === 'price-changed') return page(res, store.reviewPage({ config, cart: sales.cart(owner), review: started.review, key, platform, form, problem: say('price-changed') }), 409);
+        if (started.error === 'gone' || started.error === 'empty') return done(res, '/cart', say(started.error), 'problem');
+        if (started.error) return back(started.error);
         return redirect(res, started.url ?? `/orders/${started.key}`);
       }
     }
@@ -191,6 +218,14 @@ export function createWeb({ shop, config, now = Date.now }) {
       }
     }
 
+    // A maker's webhook (Printful, Lulu): it only names an order; the maker's API is asked.
+    const maker = /^\/makers\/(printful|lulu)$/.exec(path);
+    if (maker && req.method === 'POST') {
+      const body = (await readBody(req, MAX_BODY)).toString('utf8');
+      const heard = await sales.heardMaker(maker[1], { headers: req.headers, body, url: `${config.publicUrl}${path}` });
+      return send(res, heard.error ? 401 : 200, heard.error ? 'refused' : 'ok', 'text/plain; charset=utf-8');
+    }
+
     // The payment platform's webhook.
     if (path === '/pay/webhook' && req.method === 'POST') {
       const body = (await readBody(req, MAX_BODY)).toString('utf8');
@@ -222,7 +257,7 @@ export function createWeb({ shop, config, now = Date.now }) {
     if (path === '/feeds/google.tsv') return send(res, 200, catalog.exportAs('google', { site: config.publicUrl }), 'text/tab-separated-values; charset=utf-8', { 'cache-control': 'max-age=300' });
     if (path === '/feeds/meta.csv') return send(res, 200, catalog.exportAs('meta', { site: config.publicUrl, business: config.business }), 'text/csv; charset=utf-8', { 'cache-control': 'max-age=300' });
     if (path === '/healthz') return send(res, 200, JSON.stringify({ ok: true }), 'application/json');
-    if (path === '/robots.txt') return send(res, 200, 'User-agent: *\nDisallow: /admin\nDisallow: /orders\nDisallow: /cart\nDisallow: /checkout\n', 'text/plain; charset=utf-8');
+    if (path === '/robots.txt') return send(res, 200, 'User-agent: *\nDisallow: /admin\nDisallow: /orders\nDisallow: /cart\nDisallow: /checkout\nDisallow: /makers\n', 'text/plain; charset=utf-8');
     if (path.startsWith('/static/')) return staticFile(res, path.slice('/static/'.length));
     return page(res, store.notFoundPage({ config }), 404);
   }
@@ -359,9 +394,10 @@ export function createWeb({ shop, config, now = Date.now }) {
         const sizeId = Number(form.get('size')) || null;
         const size = sizeId ? catalog.get(sizeId) : null;
         if (sizeId && size?.parentId !== id) return done(res, `/admin/items/${id}`, 'That size isn’t on this item.', 'problem');
+        const makerRef = item.maker === 'printful' ? (form.get('printful_variant') ?? '').replace(/\D/g, '').slice(0, 20) : undefined;
         const result = size
-          ? catalog.edit(size.id, { priceCents, quantity: Number.isInteger(quantity) ? quantity : -1, madeToOrder }, { who: who.name })
-          : catalog.addSize(id, { option: form.get('option') ?? '', priceCents, quantity: Number.isInteger(quantity) ? quantity : -1, madeToOrder }, { who: who.name });
+          ? catalog.edit(size.id, { priceCents, quantity: Number.isInteger(quantity) ? quantity : -1, madeToOrder: madeToOrder || Boolean(item.maker), ...(makerRef !== undefined ? { makerRef } : {}) }, { who: who.name })
+          : catalog.addSize(id, { option: form.get('option') ?? '', priceCents, quantity: Number.isInteger(quantity) ? quantity : -1, madeToOrder, makerRef: makerRef ?? '' }, { who: who.name });
         return result.error ? done(res, `/admin/items/${id}`, admin.SAY[result.error] ?? 'That didn’t work.', 'problem') : done(res, `/admin/items/${id}`, size ? `${size.option} saved.` : 'Size added.');
       }
       if (action === 'draft' && form) {
@@ -408,11 +444,17 @@ export function createWeb({ shop, config, now = Date.now }) {
     }
 
     if (path === '/admin/orders' && !form) return page(res, admin.ordersPage({ ...view, orders: sales.list({ limit: 200 }) }));
-    const step = /^\/admin\/orders\/([A-Za-z0-9_-]{24})\/(packed|sent)$/.exec(path);
-    if (step && form) {
+    if (path === '/admin/orders/step' && form) {
       if (!owner) return done(res, '/admin/orders', 'Only owners fill orders.', 'problem');
-      const moved = await sales.advance(step[1], step[2]);
-      return done(res, '/admin/orders', moved.ok ? `Marked ${step[2]}.` : 'That order isn’t at that step.', moved.ok ? 'done' : 'problem');
+      const orderKey = String(form.get('order') ?? '');
+      const to = form.get('to');
+      if (!/^[A-Za-z0-9_-]{24}(\/(printful|lulu))?$/.test(orderKey) || !['packed', 'sent', 'make'].includes(to)) return done(res, '/admin/orders', 'That order doesn’t exist.', 'problem');
+      if (to === 'make') {
+        const sent = await sales.sendToMaker(orderKey);
+        return sent.ok ? done(res, '/admin/orders', sent.again ? 'It was already sent.' : 'Sent to be printed. Tracking shows here once it ships.') : done(res, '/admin/orders', admin.SAY[sent.error] ?? `The printer refused it (${sent.error}).`, 'problem');
+      }
+      const moved = await sales.advance(orderKey, to);
+      return done(res, '/admin/orders', moved.ok ? `Marked ${to}.` : 'That order isn’t at that step.', moved.ok ? 'done' : 'problem');
     }
 
     if (path === '/admin/import' && !form) return page(res, admin.importPage({ ...view, batches: catalog.batches() }));
