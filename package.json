@@ -14,5 +14,8 @@
     "migrate": "node scripts/migrate.js",
     "import": "node scripts/import.js",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "@potomac-solutions/kit": "github:Potomac-Solutions/potomac-kit#b0503b9f6caeb40106422564c93ae278d1ca427a"
   }
 }

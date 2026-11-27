@@ -405,7 +405,7 @@ export function channelsPage({ config, who, token, items, payment, ai, now }) {
   <h2>Your store</h2>
   <p>${live.length} parts for sale at <a href="${config.publicUrl}">${config.publicUrl}</a>.</p>
   <p>Payments: ${payment.name === 'test'
-    ? html`<strong>test page</strong> (no money moves). ${payment.asked && payment.asked !== 'test' ? `${payment.asked} is named but its settings aren’t all there.` : 'Set PAY_PROVIDER=square with PAY_SQUARE_TOKEN and PAY_SQUARE_LOCATION to take real payments.'}`
+    ? html`<strong>test page</strong> (no money moves). ${payment.asked && payment.asked !== 'test' ? `${payment.asked} is named but its settings aren’t all there.` : 'Set PAY_PROVIDER (stripe, square, paypal, helcim, authorizenet or clover) and that platform’s PAY_* settings to take real payments.'}`
     : html`<strong>${payment.label}</strong>${payment.sandbox ? ' (sandbox: no real money)' : ''}. Webhook address: <code>${config.publicUrl}/pay/webhook</code>`}</p>
   <p>AI drafts: ${ai.enabled ? `on. This month $${ai.budget().spent.toFixed(2)} of $${ai.budget().limit.toFixed(2)}.` : 'off. Set ANTHROPIC_API_KEY to draft listings from photos.'}</p>
 </section>

@@ -20,7 +20,7 @@ const MAX_BODY = 64 * 1024;
 const IMPORT_BODY = 8 * 1024 * 1024; // a whole store's product CSV, percent-encoded
 const PHOTO_BODY = 8 * MAX_PHOTO_BYTES;
 
-const PLATFORM_NAMES = { square: 'Square', test: 'the test page' };
+import { PLATFORM_NAMES } from '../app/payments.js';
 
 // Payment platforms' pages are other sites: a buy form may be sent on to one (form-action https:).
 const csp = () => [
@@ -123,13 +123,13 @@ export function createWeb({ shop, config, now = Date.now }) {
       return page(res, store.orderPage({ config, order: result.order, item, waiting: result.waiting }), 200, { 'referrer-policy': 'no-referrer' });
     }
 
-    // The test payment page, used until Square's settings are set.
+    // The test payment page, used until the payment platform's settings are set.
     if (path === '/pay/test' && platform.name === 'test') {
       if (req.method === 'GET') {
         const ref = url.searchParams.get('ref') ?? '';
         const shown = test.pageFor(ref);
         if (!shown) return page(res, store.notFoundPage({ config }), 404);
-        return page(res, store.testPayPage({ config, ref, shown }));
+        return page(res, store.testPayPage({ config, ref, shown, instead: PLATFORM_NAMES[platform.asked] && platform.asked !== 'test' ? PLATFORM_NAMES[platform.asked] : '' }));
       }
       if (req.method === 'POST') {
         if (crossSite(req)) return send(res, 403, 'Forms here are posted from this site only.', 'text/plain; charset=utf-8');

@@ -229,18 +229,18 @@ export function orderPage({ config, order, item, waiting = false, problem = '' }
   });
 }
 
-/** The test payment page: where a buyer would be on Square's page. Plainly a test; it imitates no platform. */
-export function testPayPage({ config, ref, shown }) {
+/** The test payment page: where a buyer would be on the platform's page. Plainly a test; it imitates no platform. */
+export function testPayPage({ config, ref, shown, instead = '' }) {
   return storeLayout({
     config,
     title: 'Test payment page',
     body: html`<section class="section checkout">
   <div class="panel test-pay">
-    <p><strong>Test payment page.</strong> No money moves and no card is asked for. Once Square is set up, buyers pay on Square’s own page here.</p>
-    <h1>${shown.name}</h1>
+    <p><strong>Test payment page.</strong> No money moves and no card is asked for.${instead ? ` Once ${instead} is set up, buyers pay on ${instead}’s own page here.` : ''}</p>
+    <h1>${shown.description}</h1>
     <p class="price big">${money(shown.cents)}</p>
     <form method="post" action="/pay/test"><input type="hidden" name="ref" value="${ref}"><input type="hidden" name="answer" value="pay"><button type="submit" class="primary">Pay ${money(shown.cents)}</button></form>
-    <p><a href="${shown.back}/cancel">Go back without paying</a></p>
+    <p><a href="${shown.cancel || shown.back}">Go back without paying</a></p>
   </div>
 </section>`,
   });

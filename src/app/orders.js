@@ -55,6 +55,7 @@ export function createOrders({ db, catalog, payments, site, now = Date.now, log 
       cents: item.priceCents,
       name: `${item.title} (${item.sku})`.slice(0, 120),
       back: `${site}/orders/${key}`,
+      cancel: `${site}/orders/${key}/cancel`,
       email: checked.buyer.email,
     });
     if (started.error) {

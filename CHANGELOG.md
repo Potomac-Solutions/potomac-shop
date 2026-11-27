@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Payments run on the Potomac kit.
+
+- Checkout uses `kit/pay` and `kit/pay/providers`: Stripe, Square, PayPal, Authorize.net and Clover behind `PAY_PROVIDER`, the kit's test page until that platform is set up. Replaces the store's own Square code.
+- The kit's payments live in the store's database (`kit_documents`, migration 003); payments started before this release move over and still settle and refund.
+- A cancelled order is only asked about, never charged (matters for PayPal).
+- The kit is a dependency, from its private repository at a pinned commit; see "Installing the kit" in the README.
+
 ## 0.2.0 (Nov 27, 2026)
 
 Checkout, staff accounts, photos from the phone, AI drafts.
