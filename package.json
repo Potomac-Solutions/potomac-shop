@@ -17,6 +17,6 @@
     "demo:gcadv": "node scripts/demo-gcadv.js"
   },
   "dependencies": {
-    "@potomac-solutions/kit": "github:Potomac-Solutions/potomac-kit#fe726047ce65c59ac41ea6c7c137f0099605e99f"
+    "@potomac-solutions/kit": "github:Potomac-Solutions/potomac-kit#a4fcea58f04789b28be719b98ab8f6946a4a5fb3"
   }
 }
