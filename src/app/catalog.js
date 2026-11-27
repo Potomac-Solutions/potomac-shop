@@ -12,7 +12,8 @@ const COLUMNS = {
   sku: 'sku', handle: 'handle', title: 'title', description: 'description', priceCents: 'price_cents', compareAtCents: 'compare_at_cents',
   quantity: 'quantity', condition: 'condition', category: 'category', brand: 'brand', mpn: 'mpn', gtin: 'gtin', weightGrams: 'weight_grams',
   images: 'images', fitment: 'fitment', status: 'status', heldUntil: 'held_until', soldCents: 'sold_cents', soldAt: 'sold_at', soldVia: 'sold_via',
-  lotId: 'lot_id', source: 'source',
+  lotId: 'lot_id', source: 'source', parentId: 'parent_id', option: 'option_label', madeToOrder: 'made_to_order',
+  maker: 'maker', makerRef: 'maker_ref', costCents: 'cost_cents',
 };
 const JSON_FIELDS = new Set(['images', 'fitment']);
 
@@ -21,12 +22,16 @@ export function itemFromRow(row) {
   if (!row) return null;
   const item = { id: row.id, createdAt: row.created_at, updatedAt: row.updated_at, lotName: row.lot_name ?? '' };
   for (const [field, column] of Object.entries(COLUMNS)) item[field] = JSON_FIELDS.has(field) ? JSON.parse(row[column] ?? '[]') : row[column];
+  item.madeToOrder = Boolean(item.madeToOrder);
   return item;
 }
 
-const toColumnValue = (field, value) => (JSON_FIELDS.has(field) ? JSON.stringify(value ?? []) : value ?? null);
+const toColumnValue = (field, value) => (JSON_FIELDS.has(field) ? JSON.stringify(value ?? []) : field === 'madeToOrder' ? (value ? 1 : 0) : field === 'option' || field === 'maker' || field === 'makerRef' ? String(value ?? '') : value ?? null);
 
-const ACTIONS = { publish: rules.publish, unpublish: rules.unpublish, hold: rules.hold, release: rules.release, sell: rules.sell, archive: rules.archive, restore: rules.restore };
+/** Who can make an item: '' is the store itself. */
+export const MAKERS = ['', 'printful', 'lulu'];
+
+const ACTIONS = { publish: rules.publish, unpublish: rules.unpublish, hold: rules.hold, release: rules.release, sell: rules.sell, soldOnline: rules.soldOnline, archive: rules.archive, restore: rules.restore };
 
 export function createCatalog({ db, now = Date.now }) {
   // A caller already inside a transaction (an order) passes `nested` so its step joins that one.
@@ -145,9 +150,10 @@ export function createCatalog({ db, now = Date.now }) {
   const batches = () => db.prepare('SELECT * FROM import_batches ORDER BY id DESC LIMIT 20').all();
 
   /** Items, newest first, narrowed by status, words, and the vehicle a buyer picked. */
-  function list({ status = null, q = '', vehicle = null, lotId = null, limit = 500 } = {}) {
+  function list({ status = null, q = '', vehicle = null, lotId = null, limit = 500, sizes = false } = {}) {
     sweepHolds();
-    const where = [];
+    // Sizes are bought through the item they are sizes of, so lists show the item, not each size.
+    const where = sizes ? [] : ['items.parent_id IS NULL'];
     const args = [];
     if (status) {
       const statuses = [].concat(status);
@@ -164,13 +170,48 @@ export function createCatalog({ db, now = Date.now }) {
       args.push(like, like, like);
     }
     const sql = `${select}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY items.updated_at DESC, items.id DESC LIMIT ?`;
-    const items = db.prepare(sql).all(...args, vehicle ? 5000 : limit).map(itemFromRow);
+    const items = withSizes(db.prepare(sql).all(...args, vehicle ? 5000 : limit).map(itemFromRow));
     return vehicle ? items.filter((item) => fits(item.fitment, vehicle)).slice(0, limit) : items;
+  }
+
+  /** Each item with `sizes`: its sizes in the order they were added ([] for an item with none). */
+  function withSizes(items) {
+    const ids = items.filter((item) => !item.parentId).map((item) => item.id);
+    const by = new Map(ids.map((id) => [id, []]));
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      for (const row of db.prepare(`${select} WHERE items.parent_id IN (${chunk.map(() => '?').join(', ')}) ORDER BY items.id`).all(...chunk)) by.get(row.parent_id).push(itemFromRow(row));
+    }
+    return items.map((item) => (item.parentId ? item : { ...item, sizes: by.get(item.id) ?? [] }));
   }
 
   function get(idOrHandle) {
     sweepHolds();
-    return itemFromRow(typeof idOrHandle === 'number' ? byId.get(idOrHandle) : byHandle.get(String(idOrHandle)));
+    const item = itemFromRow(typeof idOrHandle === 'number' ? byId.get(idOrHandle) : byHandle.get(String(idOrHandle)));
+    return item && withSizes([item])[0];
+  }
+
+  /**
+   * Add a size (or any option) to an item: its own stock and price, the item's title, photos and
+   * words. It is on sale whenever the item is.
+   */
+  function addSize(parentId, { option, priceCents, quantity = 0, madeToOrder = false, sku = '', makerRef = '' }, { who = 'owner' } = {}) {
+    const label = String(option ?? '').trim().slice(0, 40);
+    if (!label) return { error: 'no-option' };
+    if (!Number.isInteger(priceCents) || priceCents < 0) return { error: 'bad-price' };
+    if (!Number.isInteger(quantity) || quantity < 0) return { error: 'bad-quantity' };
+    return transaction(db, () => {
+      const parent = itemFromRow(byId.get(parentId));
+      if (!parent || parent.parentId) return { error: 'not-found' };
+      const taken = db.prepare('SELECT 1 FROM items WHERE parent_id = ? AND option_label = ?').get(parentId, label);
+      if (taken) return { error: 'option-taken' };
+      const at = now();
+      const code = sku || `${parent.sku}-${slugify(label).toUpperCase() || at.toString(36).toUpperCase()}`;
+      if (bySku.get(code)) return { error: 'sku-taken' };
+      const id = insert({ sku: code, handle: freeHandle(`${parent.handle}-${label}`), title: parent.title, description: '', priceCents, quantity, condition: parent.condition, category: parent.category, brand: parent.brand, images: [], fitment: [], status: 'active', source: 'manual', parentId, option: label, madeToOrder: madeToOrder || Boolean(parent.maker), maker: parent.maker, makerRef: String(makerRef ?? '').trim(), costCents: parent.costCents }, at);
+      log.run(at, who, 'size added', parentId, label);
+      return { ok: true, item: itemFromRow(byId.get(id)) };
+    });
   }
 
   /** Apply one of the domain's actions to an item: publish, hold, sell, archive... */
@@ -179,7 +220,8 @@ export function createCatalog({ db, now = Date.now }) {
     if (!rule) return { error: 'unknown-action' };
     return tx(nested, () => {
       sweepHolds();
-      const item = itemFromRow(byId.get(id));
+      const found = itemFromRow(byId.get(id));
+      const item = found && withSizes([found])[0];
       if (!item) return { error: 'not-found' };
       const result = rule(item, { ...args, now: now() });
       if (result.error) return result;
@@ -191,15 +233,21 @@ export function createCatalog({ db, now = Date.now }) {
 
   /** Change what an item says: title, price, stock, fitment and the rest. Status changes go through `act`. */
   function edit(id, fields, { who = 'owner', nested = false } = {}) {
-    const allowed = ['title', 'description', 'priceCents', 'compareAtCents', 'quantity', 'condition', 'category', 'brand', 'mpn', 'gtin', 'weightGrams', 'images', 'fitment', 'lotId'];
+    const allowed = ['title', 'description', 'priceCents', 'compareAtCents', 'quantity', 'condition', 'category', 'brand', 'mpn', 'gtin', 'weightGrams', 'images', 'fitment', 'lotId', 'option', 'madeToOrder', 'maker', 'makerRef', 'costCents'];
     const patch = Object.fromEntries(Object.entries(fields).filter(([k]) => allowed.includes(k)));
     if (patch.title != null && !String(patch.title).trim()) return { error: 'no-title' };
     if (patch.priceCents != null && (!Number.isInteger(patch.priceCents) || patch.priceCents < 0)) return { error: 'bad-price' };
     if (patch.quantity != null && (!Number.isInteger(patch.quantity) || patch.quantity < 0)) return { error: 'bad-quantity' };
+    if (patch.maker != null && !MAKERS.includes(patch.maker)) return { error: 'bad-maker' };
+    if (patch.costCents != null && (!Number.isInteger(patch.costCents) || patch.costCents < 0)) return { error: 'bad-price' };
+    // Printed when bought: a maker's item never runs out.
+    if (patch.maker) patch.madeToOrder = true;
     return tx(nested, () => {
       const item = itemFromRow(byId.get(id));
       if (!item) return { error: 'not-found' };
       update(id, patch, now());
+      // An item's sizes are made by whoever makes the item.
+      if ('maker' in patch) db.prepare("UPDATE items SET maker = ?, made_to_order = CASE WHEN ? <> '' THEN 1 ELSE made_to_order END, updated_at = ? WHERE parent_id = ?").run(patch.maker, patch.maker, now(), id);
       log.run(now(), who, 'edited', id, Object.keys(patch).join(', '));
       return { ok: true, item: itemFromRow(byId.get(id)) };
     });
@@ -210,6 +258,8 @@ export function createCatalog({ db, now = Date.now }) {
     if (!String(fields.title ?? '').trim()) return { error: 'no-title' };
     if (!Number.isInteger(fields.priceCents) || fields.priceCents < 0) return { error: 'bad-price' };
     if (fields.quantity != null && (!Number.isInteger(fields.quantity) || fields.quantity < 0)) return { error: 'bad-quantity' };
+    if (fields.maker != null && !MAKERS.includes(fields.maker)) return { error: 'bad-maker' };
+    if (fields.maker) fields = { ...fields, madeToOrder: true };
     return transaction(db, () => {
       const at = now();
       const handle = freeHandle(fields.title);
@@ -248,9 +298,9 @@ export function createCatalog({ db, now = Date.now }) {
   function summary() {
     sweepHolds();
     const counts = Object.fromEntries(rules.STATUSES.map((s) => [s, 0]));
-    for (const row of db.prepare('SELECT status, COUNT(*) AS n FROM items GROUP BY status').all()) counts[row.status] = row.n;
-    const noPhoto = db.prepare("SELECT COUNT(*) AS n FROM items WHERE status = 'active' AND images = '[]'").get().n;
-    const noFit = db.prepare("SELECT COUNT(*) AS n FROM items WHERE status IN ('active', 'draft') AND fitment = '[]'").get().n;
+    for (const row of db.prepare('SELECT status, COUNT(*) AS n FROM items WHERE parent_id IS NULL GROUP BY status').all()) counts[row.status] = row.n;
+    const noPhoto = db.prepare("SELECT COUNT(*) AS n FROM items WHERE parent_id IS NULL AND status = 'active' AND images = '[]'").get().n;
+    const noFit = db.prepare("SELECT COUNT(*) AS n FROM items WHERE parent_id IS NULL AND status IN ('active', 'draft') AND fitment = '[]'").get().n;
     return { counts, noPhoto, noFit };
   }
 
@@ -264,5 +314,5 @@ export function createCatalog({ db, now = Date.now }) {
     return null;
   }
 
-  return { preview, commit, undo, batches, list, get, act, edit, create, activity, createLot, lots, summary, exportAs };
+  return { preview, commit, undo, batches, list, get, addSize, act, edit, create, activity, createLot, lots, summary, exportAs };
 }

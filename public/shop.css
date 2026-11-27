@@ -153,3 +153,32 @@ label.radio input { width: auto; min-height: 0; }
 table { width: 100%; border-collapse: collapse; }
 td, th { padding: 0.5rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .test-pay { border: 2px dashed var(--muted); }
+
+/* Cart and sizes */
+.cart-link .count { display: inline-grid; place-items: center; min-width: 1.4rem; height: 1.4rem; padding: 0 0.3rem; border-radius: 999px; background: var(--red-deep); color: #fff; font-size: 0.75rem; }
+.add-form { display: grid; gap: 0.8rem; margin: 1rem 0; }
+.add-form label { flex: none; }
+.cart-lines { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: 0.8rem; }
+.cart-line { display: grid; grid-template-columns: 4.5rem 1fr auto auto auto; gap: 0.8rem; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.7rem; }
+.cart-line.short { border-color: var(--red); }
+.cart-line img, .cart-line .no-photo.small { width: 4.5rem; height: 4.5rem; object-fit: contain; background: #fff; border-radius: 8px; display: block; }
+.cart-line p { margin: 0.2rem 0 0; }
+.qty-form { display: flex; gap: 0.4rem; align-items: center; }
+.qty-form input { width: 4.5rem; }
+.line-total { font-weight: 700; margin: 0; }
+.cart-total { font-size: 1.2rem; text-align: right; }
+.cart-summary { list-style: none; padding: 0; margin: 0 0 1rem; }
+.cart-summary li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid var(--line); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.size-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-end; padding: 0.6rem 0; border-bottom: 1px solid var(--line); }
+.size-row label { flex: 1 1 7rem; }
+label.check { flex-direction: row; align-items: center; gap: 0.5rem; }
+label.check input { width: auto; min-height: 0; }
+@media (max-width: 40rem) {
+  .cart-line { grid-template-columns: 4.5rem 1fr; }
+  .cart-line .qty-form, .cart-line .line-total { grid-column: 2; }
+}
+.order-parts { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 0.4rem; }
+.order-parts li { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.cart-summary li.total { border-bottom: 0; padding-top: 0.7rem; }
+fieldset.address legend, fieldset.maker legend { font-weight: 600; margin-bottom: 0.3rem; }

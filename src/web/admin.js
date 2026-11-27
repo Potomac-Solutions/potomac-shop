@@ -24,6 +24,12 @@ export const SAY = {
   'bad-price': 'The price has to be an amount, like 45.00.',
   'bad-quantity': 'The quantity has to be a whole number.',
   'sku-taken': 'Another part already has that SKU.',
+  'no-option': 'Name the size, like M or 16 oz.',
+  'bad-maker': 'Pick who makes it.',
+  'no-maker-ref': 'Something in this order has no printer product set. Set it on the item, then send it again.',
+  'not-a-maker-order': 'That order isn’t a printer’s.',
+  'wrong-step': 'That order has already gone.',
+  'option-taken': 'This item already has that size.',
   'unknown-format': 'That file isn’t an export we recognise. Shopify, WooCommerce, BigCommerce, Magento and our own CSV are.',
   'nothing-to-import': 'Nothing in that file could be imported. The preview says why for each row.',
   'changed-since': 'Some of those parts have changed since that import, so it can’t be undone as a whole.',
@@ -51,12 +57,15 @@ export const DEMO_LOGINS = {
   helper: { email: 'helper@rix.example', name: 'Shop helper', password: 'rix-helper-demo' },
 };
 
-const demoLogins = () => html`<section class="panel demo-login">
+const demoLogins = (config) => {
+  const logins = config.theme.demoLogins ?? DEMO_LOGINS;
+  return html`<section class="panel demo-login">
   <h2>Try the dashboard</h2>
-  <p>This is a demo. Sign in as the <strong>owner</strong> to see everything, or as the <strong>helper</strong>, who can photograph and draft parts but not list or sell them.</p>
-  <p><strong>Owner</strong>: ${DEMO_LOGINS.owner.email} · ${DEMO_LOGINS.owner.password}<br><strong>Helper</strong>: ${DEMO_LOGINS.helper.email} · ${DEMO_LOGINS.helper.password}</p>
+  <p>This is a demo. Sign in as the <strong>owner</strong> to see everything, or as the <strong>helper</strong>, who can photograph and draft ${config.theme.words.items} but not list or sell them.</p>
+  <p><strong>Owner</strong>: ${logins.owner.email}, password ${logins.owner.password}<br><strong>Helper</strong>: ${logins.helper.email}, password ${logins.helper.password}</p>
   <p class="hint">Everything resets overnight. Nothing is really sold.</p>
 </section>`;
+};
 
 export function adminLayout({ config, title, body, who = null, token = '', notice = '', problem = '', signIn = false }) {
   const owner = who?.role === 'owner';
@@ -68,17 +77,18 @@ export function adminLayout({ config, title, body, who = null, token = '', notic
 <meta name="robots" content="noindex">
 <title>${title} · ${config.business} dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Roboto:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="${config.theme.fonts}">
 <link rel="stylesheet" href="/static/shop.css">
+${config.theme.css ? html`<link rel="stylesheet" href="${config.theme.css}">` : ''}
 <script src="/static/admin.js" defer></script>
 </head>
 <body class="admin">
 <header class="top">
-  <a class="brand" href="/admin"><span class="brand-mark">RIX</span> Dashboard</a>
+  <a class="brand" href="/admin">${config.theme.brand.mark ? html`<span class="brand-mark">${config.theme.brand.mark}</span> ` : html`${config.business} `}Dashboard</a>
   ${who ? html`<nav aria-label="Dashboard">
-    <a href="/admin/items/new">+ List a part</a>
-    <a href="/admin/items">Parts</a>
-    <a href="/admin/lots">Donor cars</a>
+    <a href="/admin/items/new">+ List ${config.theme.auto ? 'a part' : 'an item'}</a>
+    <a href="/admin/items">${config.theme.auto ? 'Parts' : 'Items'}</a>
+    ${config.theme.auto ? html`<a href="/admin/lots">Donor cars</a>` : ''}
     ${owner ? html`<a href="/admin/orders">Orders</a><a href="/admin/import">Import</a><a href="/admin/channels">Channels</a><a href="/admin/people">People</a>` : ''}
     <a href="/" target="_blank" rel="noopener">Store ↗</a>
     <form method="post" action="/admin/sign-out" class="inline"><input type="hidden" name="token" value="${token}"><button class="link">Sign out</button></form>
@@ -87,7 +97,7 @@ export function adminLayout({ config, title, body, who = null, token = '', notic
 <main id="main" class="admin-main">
 ${notice ? html`<p class="notice-ok" role="status">${notice}</p>` : ''}
 ${problem ? html`<p class="problem" role="alert">${problem}</p>` : ''}
-${signIn && config.demo ? demoLogins() : ''}
+${signIn && config.demo ? demoLogins(config) : ''}
 ${body}
 </main>
 </body>
@@ -112,9 +122,9 @@ export function dashboardPage({ config, who, token, owner, summary, drafts, rece
   <a class="stat" href="/admin/items?status=held"><span>${counts.held}</span>on hold</a>
   <a class="stat" href="/admin/items?status=sold"><span>${counts.sold}</span>sold</a>
 </div>
-${owner && orders.some((o) => o.state === 'paid' || o.state === 'refund-failed') ? html`<section class="panel">
+${owner && orders.some(toFill) ? html`<section class="panel">
   <h2>Orders to fill</h2>
-  ${orderRows(orders.filter((o) => o.state === 'paid' || o.state === 'refund-failed'), now)}
+  ${orderRows(orders.filter(toFill), now, token)}
   <p><a href="/admin/orders">All orders</a></p>
 </section>` : ''}
 ${summary.noPhoto || summary.noFit ? html`<section class="panel warn">
@@ -230,6 +240,8 @@ ${isNew ? '' : html`<section class="panel">
     <label>Was (optional)<input name="compare_at" inputmode="decimal" value="${item.compareAtCents != null ? (item.compareAtCents / 100).toFixed(2) : ''}"></label>
     <label>Quantity<input name="quantity" inputmode="numeric" value="${item.quantity ?? 1}"></label>
   </div>
+  <label class="check"><input type="checkbox" name="made_to_order" ${item.madeToOrder ? raw('checked') : ''}> Made to order (printed when bought, so it never runs out)</label>
+  ${makerFields(item)}
   <div class="cols">
     <label>Condition<select name="condition">${['used', 'new', 'refurbished'].map((c) => html`<option ${c === (item.condition ?? 'used') ? raw('selected') : ''}>${c}</option>`)}</select></label>
     <label>Category<input name="category" value="${value('category')}" placeholder="Drivetrain"></label>
@@ -246,6 +258,7 @@ ${isNew ? '' : html`<section class="panel">
   <button type="submit" class="primary">${isNew ? 'Save as draft' : 'Save changes'}</button>
   </fieldset>
 </form>
+${isNew || item.parentId ? '' : sizesPanel(item, { token, owner })}
 ${isNew ? '' : html`<section class="panel">
   <h2>Post it by hand</h2>
   <p class="quiet">Facebook Marketplace and forums don’t take listings from stores’ software yet. Copy this, add the photos, post it, and mark it sold here when it goes.</p>
@@ -254,6 +267,64 @@ ${isNew ? '' : html`<section class="panel">
 </section>
 <section class="panel"><h2>History</h2>${activityList(history.map((h) => ({ ...h, title: '' })), now)}</section>`}`,
   });
+}
+
+/** Who makes it: the store, or a printer that prints and ships it when it's bought. */
+function makerFields(item) {
+  const lulu = (() => {
+    try {
+      return item.maker === 'lulu' && item.makerRef ? JSON.parse(item.makerRef) : {};
+    } catch {
+      return {};
+    }
+  })();
+  return html`<fieldset class="plain maker">
+    <legend>Who makes it</legend>
+    <label>Made by<select name="maker">
+      <option value="" ${!item.maker ? raw('selected') : ''}>We ship it ourselves</option>
+      <option value="printful" ${item.maker === 'printful' ? raw('selected') : ''}>Printful (prints and ships it)</option>
+      <option value="lulu" ${item.maker === 'lulu' ? raw('selected') : ''}>Lulu (prints and ships the book)</option>
+    </select></label>
+    <div class="cols">
+      <label>Printful variant id<input name="printful_variant" inputmode="numeric" value="${item.maker === 'printful' ? item.makerRef ?? '' : ''}" placeholder="For an item without sizes"></label>
+      <label>What the printer charges for one<input name="cost" inputmode="decimal" value="${item.costCents != null ? (item.costCents / 100).toFixed(2) : ''}" placeholder="12.95"></label>
+    </div>
+    <p class="hint">Printful: the sync variant id of the product in your Printful store. With sizes, each size has its own (below).</p>
+    <div class="cols">
+      <label>Lulu product (pod_package_id)<input name="lulu_package" value="${lulu.pod_package_id ?? ''}" placeholder="0550X0850BWSTDPB060UW444GXX"></label>
+      <label>Pages<input name="lulu_pages" inputmode="numeric" value="${lulu.page_count ?? ''}"></label>
+    </div>
+    <label>Lulu cover PDF (https address)<input name="lulu_cover" value="${lulu.cover ?? ''}"></label>
+    <label>Lulu interior PDF (https address)<input name="lulu_interior" value="${lulu.interior ?? ''}"></label>
+  </fieldset>`;
+}
+
+/** Sizes (or any option): each with its own price and stock, bought instead of the item itself. */
+function sizesPanel(item, { token, owner }) {
+  const sizes = item.sizes ?? [];
+  const row = (size) => html`<form method="post" action="/admin/items/${item.id}/sizes" class="size-row">
+    <input type="hidden" name="token" value="${token}"><input type="hidden" name="size" value="${size.id}">
+    <strong>${size.option}</strong>
+    <label>Price<input name="price" inputmode="decimal" value="${(size.priceCents / 100).toFixed(2)}"></label>
+    <label>Stock<input name="quantity" inputmode="numeric" value="${size.quantity}" ${size.madeToOrder ? raw('disabled') : ''}></label>
+    <label class="check"><input type="checkbox" name="made_to_order" ${size.madeToOrder ? raw('checked') : ''}> Made to order</label>
+    ${item.maker === 'printful' ? html`<label>Printful variant id<input name="printful_variant" inputmode="numeric" value="${size.makerRef}"></label>` : ''}
+    ${owner ? html`<button class="small">Save</button>` : ''}
+  </form>`;
+  return html`<section class="panel">
+  <h2>Sizes</h2>
+  <p class="quiet">${sizes.length ? 'Buyers pick one of these; each has its own price and stock.' : 'For shirts, hats and anything that comes in sizes. With sizes, buyers pick one instead of buying the item itself.'}</p>
+  ${sizes.map(row)}
+  ${owner ? html`<form method="post" action="/admin/items/${item.id}/sizes" class="size-row">
+    <input type="hidden" name="token" value="${token}">
+    <label>New size<input name="option" placeholder="M" maxlength="40" required></label>
+    <label>Price<input name="price" inputmode="decimal" value="${(item.priceCents / 100).toFixed(2)}"></label>
+    <label>Stock<input name="quantity" inputmode="numeric" value="0"></label>
+    <label class="check"><input type="checkbox" name="made_to_order" ${item.madeToOrder ? raw('checked') : ''}> Made to order</label>
+    ${item.maker === 'printful' ? html`<label>Printful variant id<input name="printful_variant" inputmode="numeric"></label>` : ''}
+    <button class="small primary">Add size</button>
+  </form>` : ''}
+</section>`;
 }
 
 const budgetLine = (ai) => {
@@ -274,14 +345,35 @@ export function marketplaceText(item, config) {
   ].filter(Boolean).join('\n');
 }
 
-const ORDER_STATES = { started: 'Paying', abandoned: 'Not paid', paid: 'To fill', cancelled: 'Cancelled', refunded: 'Refunded (sold elsewhere)', 'refund-failed': 'Refund by hand' };
+const ORDER_STATES = { paying: 'Paying', abandoned: 'Not paid', paid: 'To fill', cancelled: 'Cancelled', refunded: 'Refunded', 'refund-failed': 'Refund by hand' };
+/** A paid order with a part still to send, or a refund to make by hand. */
+const toFill = (o) => (o.state === 'paid' && o.orders.some((part) => part.step !== 'sent' && part.step !== 'refunded')) || o.state === 'refund-failed';
+const STEP_WORDS = { paid: 'To fill', packed: 'Packed', sent: 'Sent', refunded: 'Refunded' };
 
-function orderRows(list, now) {
-  // A payment page left open past the hold is an order nobody paid.
-  const stateOf = (o) => (o.state === 'started' && now - o.createdAt > 30 * 60_000 ? 'abandoned' : o.state);
+const MAKER_NAMES = { printful: 'Printful', lulu: 'Lulu' };
+const MAKE_WORDS = { waiting: 'Waiting for your OK', placed: 'At the printer', shipped: 'Shipped', refused: 'Printer refused it', failed: 'Printer couldn’t make it', cancelled: 'Cancelled at the printer' };
+
+/** One order of a checkout: the store's own, or a printer's, with what to do next. */
+function orderPart(o, part, token) {
+  const words = (line) => `${line.qty} × ${line.title}${line.option ? ` (${line.option})` : ''}`;
+  const button = (to, label, primary = true) => html`<form method="post" action="/admin/orders/step" class="inline"><input type="hidden" name="token" value="${token}"><input type="hidden" name="order" value="${part.key}"><input type="hidden" name="to" value="${to}"><button class="small ${primary ? 'primary' : ''}">${label}</button></form>`;
+  const track = part.shipments.map((one) => html` · ${one.url ? html`<a href="${one.url}" rel="noopener noreferrer">${one.carrier || 'Tracking'} ${one.tracking}</a>` : `${one.carrier} ${one.tracking}`}`);
+  if (part.maker) {
+    const name = MAKER_NAMES[part.maker] ?? part.maker;
+    const next = o.state === 'paid' && part.step === 'paid' && token ? button('make', `Send to ${name}`) : '';
+    return html`<li><strong>${name}:</strong> ${part.lines.map(words).join(', ')} <span class="badge badge-${part.make === 'shipped' ? 'sold' : part.make === 'placed' ? 'active' : part.make === 'refused' || part.make === 'failed' ? 'held' : 'draft'}">${MAKE_WORDS[part.make] ?? 'To send'}</span>${track}
+      ${part.makeError ? html`<span class="warn-text"> ${part.makeError}</span>` : ''} ${next}</li>`;
+  }
+  const next = o.state !== 'paid' || !token ? null : part.step === 'paid' ? ['packed', 'Mark packed'] : part.step === 'packed' ? ['sent', 'Mark sent'] : null;
+  return html`<li><strong>We ship:</strong> ${part.lines.map(words).join(', ')} <span class="badge badge-${part.step === 'sent' ? 'sold' : 'active'}">${STEP_WORDS[part.step] ?? 'To fill'}</span>${track} ${next ? button(next[0], next[1]) : ''}</li>`;
+}
+
+function orderRows(list, now, token = '') {
+  const badge = (o) => (o.state === 'paid' ? 'active' : o.state === 'refund-failed' ? 'sold' : 'draft');
   return html`<ul class="rows">${list.map((o) => html`<li class="row"><div class="row-main">
-    <a href="/admin/items/${o.itemId}"><strong>${o.itemTitle}</strong></a> <span class="badge badge-${o.state === 'paid' ? 'active' : o.state === 'refund-failed' ? 'sold' : 'draft'}">${ORDER_STATES[stateOf(o)]}</span>
+    <strong>${o.lines.map((line) => `${line.qty} × ${line.title}${line.option ? ` (${line.option})` : ''}`).join(', ')}</strong> <span class="badge badge-${badge(o)}">${o.state === 'paid' ? 'Paid' : ORDER_STATES[o.state] ?? o.state}</span>
     <p class="quiet">${money(o.cents)} · ${o.name} · <a href="mailto:${o.email}">${o.email}</a>${o.phone ? html` · <a href="tel:${o.phone}">${o.phone}</a>` : ''} · ${o.delivery === 'pickup' ? 'pickup' : html`ship to ${o.address}`} · ${ago(o.createdAt, now)}</p>
+    ${o.state === 'paid' && o.orders.length ? html`<ul class="order-parts">${o.orders.map((part) => orderPart(o, part, token))}</ul>` : ''}
     ${o.note ? html`<p class="warn-text">${o.note}</p>` : ''}
   </div></li>`)}</ul>`;
 }
@@ -295,8 +387,8 @@ export function ordersPage({ config, who, token, orders, notice, problem, now })
     problem,
     title: 'Orders',
     body: html`<h1>Orders</h1>
-<p class="quiet">Paid orders: set up pickup, or email the shipping cost. A part is marked sold the moment it’s paid.</p>
-${orders.length ? orderRows(orders, now) : html`<p class="quiet">No orders yet.</p>`}`,
+<p class="quiet">Paid orders: set up pickup, or email the shipping cost, then mark what you ship packed and sent. What a printer makes waits for your OK: check the address, then send it; tracking shows up here when it ships. A one-of-a-kind part is marked sold the moment it’s paid.</p>
+${orders.length ? orderRows(orders, now, token) : html`<p class="quiet">No orders yet.</p>`}`,
   });
 }
 

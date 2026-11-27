@@ -13,9 +13,10 @@
     "demo": "node scripts/demo.js",
     "migrate": "node scripts/migrate.js",
     "import": "node scripts/import.js",
-    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\""
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "demo:gcadv": "node scripts/demo-gcadv.js"
   },
   "dependencies": {
-    "@potomac-solutions/kit": "github:Potomac-Solutions/potomac-kit#b0503b9f6caeb40106422564c93ae278d1ca427a"
+    "@potomac-solutions/kit": "github:Potomac-Solutions/potomac-kit#a4fcea58f04789b28be719b98ab8f6946a4a5fb3"
   }
 }

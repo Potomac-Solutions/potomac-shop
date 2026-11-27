@@ -15,6 +15,10 @@ const shop = createShop({ db, config });
 if (config.demo) shop.accounts = lockedAccounts(shop.accounts);
 const { server } = createWeb({ shop, config });
 
+// Checkouts left on the payment page past the 30-minute hold: their stock goes back (or, if they
+// were paid after all, the sale is recorded).
+setInterval(() => shop.sales.sweep().catch((error) => console.error('Sweep failed', error)), 2 * 60_000).unref();
+
 if (config.demo) {
   // The demo resets every night at 4 am Eastern: the process exits and the host starts it again
   // (Railway's "always" restart), which re-seeds it.

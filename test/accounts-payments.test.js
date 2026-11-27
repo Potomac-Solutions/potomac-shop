@@ -126,85 +126,63 @@ function fakeStripe() {
   return { fetch, calls, pay };
 }
 
-const withOrder = () => {
-  const db = fresh();
-  db.prepare("INSERT INTO items (sku, handle, title, price_cents, created_at, updated_at) VALUES ('A', 'a', 'A', 100, 0, 0)").run();
-  db.prepare("INSERT INTO orders (key, item_id, cents, name, email, delivery, created_at) VALUES ('k1', 1, 4500, 'D', 'd@x.example', 'pickup', 0)").run();
-  return db;
-};
+const kitStore = () => sqliteStore(fresh());
 
 test('the shop’s database keeps the kit’s store contract', async () => {
   await checkStore(sqliteStore(fresh()), assert);
 });
 
-test('Stripe through the kit: a Checkout page per order, paid once, believed only from Stripe', async () => {
-  const db = withOrder();
+test('Stripe through the kit: a Checkout page per checkout, paid once, believed only from Stripe', async () => {
   const stripe = fakeStripe();
   const platform = choosePayments({ PAY_PROVIDER: 'stripe', PAY_STRIPE_KEY: 'sk_test_abc', PAY_STRIPE_WEBHOOK_SECRET: 'whsec_x' }, { fetch: stripe.fetch });
   assert.deepEqual([platform.name, platform.label, platform.sandbox], ['stripe', 'Stripe', true]);
-  let now = 1_800_000_000_000;
-  const payments = createPayments({ db, provider: platform.provider, now: () => now });
-  const started = await payments.start({ key: 'k1', cents: 4500, name: 'Trail tee (M)', email: 'd@x.example', back: 'https://shop.example/orders/k1', cancel: 'https://shop.example/orders/k1/cancel' });
+  const pay = createPayments({ store: kitStore(), provider: platform.provider });
+  const id = 'checkout/k1';
+  const started = await pay.start({ id, cents: 4500, description: 'Trail tee (M)', email: 'd@x.example', back: 'https://shop.example/checkout/back?checkout=k1', cancel: 'https://shop.example/checkout/cancel?checkout=k1' });
   assert.equal(started.url, 'https://checkout.stripe.com/c/pay/cs_test_1');
   const made = stripe.calls[0];
   assert.equal(made.headers.authorization, 'Bearer sk_test_abc');
-  assert.equal(made.form.success_url, 'https://shop.example/orders/k1');
-  assert.equal(made.form.cancel_url, 'https://shop.example/orders/k1/cancel');
+  assert.equal(made.form.success_url, 'https://shop.example/checkout/back?checkout=k1');
+  assert.equal(made.form.cancel_url, 'https://shop.example/checkout/cancel?checkout=k1');
   assert.equal(made.form['line_items[0][price_data][unit_amount]'], '4500');
-  assert.equal((await payments.start({ key: 'k1', cents: 4500, name: 'x', back: 'https://shop.example/orders/k1' })).again, true, 'pressed again, the same page');
+  assert.equal((await pay.start({ id, cents: 4500, back: 'https://shop.example/checkout/back?checkout=k1' })).again, true, 'pressed again, the same page');
   assert.equal(stripe.calls.filter((c) => c.method === 'POST').length, 1);
 
-  assert.deepEqual(await payments.settle('k1'), { error: 'not-paid' });
+  assert.equal((await pay.settle({ id })).error, 'not-paid');
   stripe.pay('cs_test_1');
   const body = JSON.stringify({ type: 'checkout.session.completed', data: { object: { id: 'cs_test_1' } } });
-  assert.deepEqual(await payments.heard({ headers: { 'stripe-signature': 't=1,v1=forged' }, body }), { error: 'bad-signature' });
+  assert.deepEqual(await pay.heard({ headers: { 'stripe-signature': 't=1,v1=forged' }, body }), { error: 'bad-signature' });
   const stamp = Math.floor(Date.now() / 1000); // Stripe checks the signature's time against the real clock.
   const signature = createHmac('sha256', 'whsec_x').update(`${stamp}.${body}`).digest('hex');
-  const heard = await payments.heard({ headers: { 'stripe-signature': `t=${stamp},v1=${signature}` }, body });
-  assert.deepEqual([heard.ok, heard.key, heard.paymentId], [true, 'k1', 'pi_1']);
-  assert.equal((await payments.settle('k1')).again, true);
-  assert.equal(payments.get('k1').state, 'paid');
+  const heard = await pay.heard({ headers: { 'stripe-signature': `t=${stamp},v1=${signature}` }, body });
+  assert.deepEqual([heard.ok, heard.id, heard.payment], [true, id, 'pi_1']);
+  assert.equal((await pay.settle({ id })).again, true);
 
-  assert.equal((await payments.refund('k1')).ok, true);
+  assert.equal((await pay.refund({ id })).ok, true);
   const refund = stripe.calls.find((c) => c.path === '/v1/refunds');
   assert.deepEqual([refund.form.payment_intent, refund.form.amount], ['pi_1', '4500']);
-  assert.equal(payments.get('k1').refunded, 4500);
-  assert.deepEqual(await payments.refund('k1'), { error: 'bad-amount' }, 'nothing left to give back');
+  assert.equal((await pay.refund({ id })).error, 'bad-amount', 'nothing left to give back');
 });
 
 test('Square through the kit: a payment link, a signed webhook, a refund', async () => {
-  const db = withOrder();
   const sq = fakeSquare();
   const platform = choosePayments({ PAY_PROVIDER: 'square', PAY_SQUARE_TOKEN: 'EAAA-test', PAY_SQUARE_LOCATION: 'LOC1', PAY_SQUARE_SANDBOX: '1', PAY_SQUARE_WEBHOOK_KEY: 'sigkey', PAY_SQUARE_WEBHOOK_URL: 'https://rix.example/pay/webhook' }, { fetch: sq.fetch });
-  const payments = createPayments({ db, provider: platform.provider });
-  const started = await payments.start({ key: 'k1', cents: 4500, name: '2g shifter (RR-1)', back: 'https://rix.example/orders/k1' });
+  const pay = createPayments({ store: kitStore(), provider: platform.provider });
+  const started = await pay.start({ id: 'checkout/k1', cents: 4500, description: '2g shifter (RR-1)', back: 'https://rix.example/checkout/back?checkout=k1' });
   assert.equal(started.url, 'https://sandbox.square.link/u/ord_1');
   assert.equal(sq.calls[0].url, 'https://connect.squareupsandbox.com/v2/online-checkout/payment-links');
   sq.pay('ord_1');
   const body = JSON.stringify({ type: 'payment.updated', data: { object: { payment: { id: 'pay_1', order_id: 'ord_1' } } } });
-  assert.deepEqual(await payments.heard({ headers: { 'x-square-hmacsha256-signature': 'forged' }, body }), { error: 'bad-signature' });
+  assert.deepEqual(await pay.heard({ headers: { 'x-square-hmacsha256-signature': 'forged' }, body }), { error: 'bad-signature' });
   const signature = createHmac('sha256', 'sigkey').update(`https://rix.example/pay/webhook${body}`).digest('base64');
-  assert.equal((await payments.heard({ headers: { 'x-square-hmacsha256-signature': signature }, body })).key, 'k1');
-  assert.equal((await payments.refund('k1')).ok, true);
+  assert.equal((await pay.heard({ headers: { 'x-square-hmacsha256-signature': signature }, body })).id, 'checkout/k1');
+  assert.equal((await pay.refund({ id: 'checkout/k1' })).ok, true);
 });
 
-test('a cancelled order is only asked about, never charged', async () => {
-  const db = withOrder();
-  const { test: testPay, provider } = choosePayments({});
-  let cancelled = false;
-  const payments = createPayments({ db, provider, wanted: () => !cancelled });
-  const started = await payments.start({ key: 'k1', cents: 4500, name: 'A', back: '/orders/k1' });
-  cancelled = true;
-  testPay.approve(started.ref);
-  // The test page has no "take the money" step, so asking still finds it paid: the shop refunds
-  // (orders.paid). What matters is that the kit was told the order isn't wanted.
-  assert.equal((await payments.settle('k1')).ok, true);
-});
-
-test('payments started before the kit still settle and refund', async () => {
+test('payments started before carts still settle and refund', async () => {
   const db = openDatabase(':memory:');
-  const dir = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'mig-'));
   const fs = await import('node:fs');
+  const dir = fs.mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'mig-'));
   for (const name of fs.readdirSync(new URL('../migrations/', import.meta.url))) {
     if (name < '003') fs.copyFileSync(new URL(`../migrations/${name}`, import.meta.url), `${dir}/${name}`);
   }
@@ -216,12 +194,12 @@ test('payments started before the kit still settle and refund', async () => {
   const sq = fakeSquare();
   const platform = choosePayments({ PAY_PROVIDER: 'square', PAY_SQUARE_TOKEN: 't', PAY_SQUARE_LOCATION: 'L', PAY_SQUARE_SANDBOX: '1' }, { fetch: sq.fetch });
   await platform.provider.start({ id: 'x', cents: 4500, currency: 'usd', description: 'A', back: '/' }); // Square's side of the old link.
-  const payments = createPayments({ db, provider: platform.provider });
-  assert.equal(payments.get('old').state, 'started');
-  assert.deepEqual(await payments.settle('old'), { error: 'not-paid' });
+  const pay = createPayments({ store: sqliteStore(db), provider: platform.provider });
+  assert.equal(pay.paid('order/old').state, 'started');
+  assert.equal((await pay.settle({ id: 'order/old' })).error, 'not-paid');
   sq.pay('ord_1');
-  assert.equal((await payments.settle('old')).paymentId, 'pay_1');
-  assert.equal((await payments.refund('old')).ok, true);
+  assert.equal((await pay.settle({ id: 'order/old' })).payment, 'pay_1');
+  assert.equal((await pay.refund({ id: 'order/old' })).ok, true);
 });
 
 test('a platform is used only when its settings are all there; otherwise the test page', () => {

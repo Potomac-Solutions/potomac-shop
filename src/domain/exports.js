@@ -62,8 +62,13 @@ export function shopifyCsv(items, { vendor = '' } = {}) {
 export const webImages = (images) => images.filter((src) => !/\.hei[cf](\?|$)/i.test(src));
 
 /** Whether an item can be bought right now: listed, in stock, not held for someone. */
+// An item with sizes is buyable while any size is; a made-to-order item never runs out.
+const inStock = (item) => item.madeToOrder || item.quantity > 0;
 export const buyable = (item, now = Date.now()) =>
-  item.status === 'active' && item.quantity > 0 && !(item.heldUntil && item.heldUntil > now);
+  item.status === 'active' && !(item.heldUntil && item.heldUntil > now) && (item.sizes?.length ? item.sizes.some(inStock) : inStock(item));
+
+/** Listed but with none left: someone is paying for the last one right now. */
+export const beingBought = (item) => item.status === 'active' && !item.madeToOrder && !item.sizes?.length && item.quantity === 0;
 
 // Feeds are flat text: no tabs or line breaks inside a value.
 const flat = (text, max) => String(text ?? '').replace(/[\t\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, max);

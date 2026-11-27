@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { migrate, openDatabase } from '../src/infra/db.js';
 import { createShop } from '../src/app/index.js';
+import { newCheckoutKey } from '../src/app/sales.js';
 import { readConfig } from '../src/config.js';
 import { sniff } from '../src/app/photos.js';
 import { parseMultipart, boundaryOf } from '../src/web/multipart.js';
@@ -19,58 +20,110 @@ function setUp({ env = {}, fetch } = {}) {
   return { shop, db, tick: (ms) => (clock += ms), at: () => clock };
 }
 const buyer = { name: 'Dana', email: 'dana@example.com', delivery: 'pickup' };
+const refOf = (url) => new URL(url, 'http://local').searchParams.get('ref');
 
-test('buying: the part is held while the buyer pays, sold everywhere once paid, never twice', async () => {
+async function checkOut(shop, owner, items, form = buyer) {
+  for (const [handle, qty] of items) assert.equal((await shop.sales.add(owner, handle, qty)).ok, true, handle);
+  return shop.sales.start(owner, form, { key: newCheckoutKey() });
+}
+
+test('buying: stock is taken while the buyer pays, a one-of-a-kind part sold everywhere once paid', async () => {
   const { shop } = setUp();
-  const { orders, catalog, test: testPay } = shop;
-  const started = await orders.start('belts', buyer);
+  const { sales, catalog, test: testPay } = shop;
+  const started = await checkOut(shop, 'cart:a', [['belts', 1]]);
   assert.equal(started.ok, true);
   assert.match(started.url, /^\/pay\/test\?ref=test_/);
-  assert.equal(catalog.get('belts').status, 'held');
-  assert.deepEqual(await orders.start('belts', { ...buyer, email: 'other@example.com' }), { error: 'gone' });
+  assert.equal(catalog.get('belts').quantity, 0);
+  assert.equal((await sales.add('cart:b', 'belts', 1)).error, 'sold-out', 'nobody else can put the last one in a cart');
 
-  const notYet = await orders.back(started.key);
+  const notYet = await sales.back(started.key);
   assert.equal(notYet.waiting, true);
-  assert.equal(catalog.get('belts').status, 'held');
+  assert.equal(notYet.checkout.state, 'paying');
 
-  testPay.approve(started.ref);
-  const paid = await orders.back(started.key);
-  assert.equal(paid.order.state, 'paid');
+  testPay.approve(refOf(started.url));
+  const paid = await sales.back(started.key);
+  assert.equal(paid.checkout.state, 'paid');
+  assert.equal(paid.checkout.step, 'paid');
   assert.equal(catalog.get('belts').status, 'sold');
   assert.equal(catalog.get('belts').soldVia, 'site');
-  assert.equal((await orders.back(started.key)).order.state, 'paid');
+  assert.equal((await sales.back(started.key)).checkout.state, 'paid', 'coming back again changes nothing');
+  assert.equal(sales.cart('cart:a').lines.length, 0);
   assert.match(catalog.exportAs('google', { site: 'https://rix.example' }), /RR-2\t.*out_of_stock/);
 });
 
-test('a buyer who backs out lets the part go; a paid order can’t be cancelled', async () => {
+test('a cart with several items and sizes is one checkout, all or nothing', async () => {
   const { shop } = setUp();
-  const started = await shop.orders.start('belts', buyer);
-  assert.equal(shop.orders.cancel(started.key).ok, true);
-  assert.equal(shop.catalog.get('belts').status, 'active');
-  const again = await shop.orders.start('belts', buyer);
-  shop.test.approve(again.ref);
-  await shop.orders.back(again.key);
-  assert.equal(shop.orders.cancel(again.key).error, 'not-open');
+  const { catalog, sales, test: testPay } = shop;
+  const tee = catalog.create({ title: 'Trail tee', priceCents: 2500, quantity: 0, condition: 'new' });
+  const small = catalog.addSize(tee.item.id, { option: 'S', priceCents: 2500, quantity: 2 });
+  const large = catalog.addSize(tee.item.id, { option: 'L', priceCents: 2700, quantity: 0, madeToOrder: true });
+  assert.equal(catalog.addSize(tee.item.id, { option: 'S', priceCents: 2500 }).error, 'option-taken');
+  assert.equal(catalog.act(tee.item.id, 'publish').ok, true, 'an item with sizes lists without stock of its own');
+  assert.deepEqual(catalog.get(tee.item.id).sizes.map((one) => one.option), ['S', 'L']);
+  assert.ok(!catalog.list({ status: 'active' }).some((one) => one.parentId), 'lists show the item, not each size');
+  assert.equal((await sales.add('cart:a', tee.item.handle, 1)).error, 'gone', 'the item itself is bought through its sizes');
+
+  const started = await checkOut(shop, 'cart:a', [[small.item.handle, 2], [large.item.handle, 3], ['stalk', 1]]);
+  assert.equal(started.ok, true);
+  assert.equal(sales.get(started.key).cents, 2 * 2500 + 3 * 2700 + 3500);
+  assert.equal(catalog.get(small.item.id).quantity, 0);
+  assert.equal(catalog.get(large.item.id).quantity, 0, 'made to order: never counted down');
+  testPay.approve(refOf(started.url));
+  await sales.back(started.key);
+  assert.equal(catalog.get(small.item.id).status, 'active', 'a size stays listed');
+  assert.equal(catalog.get(tee.item.id).status, 'active');
+  assert.equal(catalog.get('stalk').status, 'sold');
+
+  // Someone else's cart had the last small: checkout refuses the whole cart, takes nothing.
+  await catalog.edit(small.item.id, { quantity: 1 });
+  await sales.add('cart:b', small.item.handle, 1);
+  await sales.add('cart:c', small.item.handle, 1);
+  await sales.add('cart:c', large.item.handle, 1);
+  assert.equal((await sales.start('cart:b', buyer, { key: newCheckoutKey() })).ok, true);
+  const refused = await sales.start('cart:c', buyer, { key: newCheckoutKey() });
+  assert.equal(refused.error, 'gone');
+  assert.equal(sales.cart('cart:c').ready, false);
 });
 
-test('if the part sold at the counter while the buyer paid, the payment is refunded', async () => {
+test('a buyer who backs out lets the stock go; an abandoned checkout is swept back', async () => {
   const { shop, tick } = setUp();
-  const started = await shop.orders.start('belts', buyer);
-  tick(31 * 60_000); // the hold runs out
+  const started = await checkOut(shop, 'cart:a', [['belts', 1]]);
+  assert.equal((await shop.sales.cancel('cart:b', started.key)).error, 'not-yours');
+  assert.equal((await shop.sales.cancel('cart:a', started.key)).checkout.state, 'cancelled');
+  assert.equal(shop.catalog.get('belts').quantity, 1);
+  const again = await shop.sales.start('cart:a', buyer, { key: newCheckoutKey() });
+  assert.equal(again.ok, true, 'the cart kept its line');
+  tick(31 * 60_000);
+  await shop.sales.sweep();
+  assert.equal(shop.catalog.get('belts').quantity, 1);
+  assert.equal(shop.sales.get(again.key).state, 'cancelled');
+});
+
+test('if the part sold at the counter after the hold ran out and the buyer paid anyway, the payment is refunded', async () => {
+  const { shop, tick } = setUp();
+  const started = await checkOut(shop, 'cart:a', [['belts', 1]]);
+  tick(31 * 60_000);
+  await shop.sales.sweep();
   const belts = shop.catalog.get('belts');
-  assert.equal(belts.status, 'active');
-  shop.catalog.act(belts.id, 'sell', { via: 'counter' });
-  shop.test.approve(started.ref);
-  const result = await shop.orders.back(started.key);
-  assert.equal(result.order.state, 'refunded');
+  assert.equal(shop.catalog.act(belts.id, 'sell', { via: 'counter' }).ok, true);
+  shop.test.approve(refOf(started.url));
+  const result = await shop.sales.back(started.key);
+  assert.equal(result.checkout.state, 'refunded');
   assert.equal(shop.catalog.get('belts').soldVia, 'counter');
 });
 
-test('the buyer’s details are checked before anything is held', async () => {
+test('the buyer’s details are checked before anything is taken', async () => {
   const { shop } = setUp();
-  assert.deepEqual(await shop.orders.start('belts', { ...buyer, email: 'nope' }), { error: 'bad-email' });
-  assert.deepEqual(await shop.orders.start('belts', { ...buyer, delivery: 'ship', address: '' }), { error: 'no-address' });
-  assert.equal(shop.catalog.get('belts').status, 'active');
+  await shop.sales.add('cart:a', 'belts', 1);
+  assert.deepEqual(await shop.sales.start('cart:a', { ...buyer, email: 'nope' }, { key: newCheckoutKey() }), { error: 'bad-email' });
+  assert.deepEqual(await shop.sales.start('cart:a', { ...buyer, delivery: 'ship', address: '' }, { key: newCheckoutKey() }), { error: 'no-address' });
+  assert.equal(shop.catalog.get('belts').quantity, 1);
+});
+
+test('the kit may change an item’s count and nothing else', () => {
+  const { shop } = setUp();
+  assert.equal(shop.store.get('items', 'belts').left, 1);
+  assert.throws(() => shop.store.write('items', 'belts', { cents: 1 }), /only change an item's count/);
 });
 
 test('photos: kinds read from the bytes, HEIC named, stored photos go into the feed with the store’s address', () => {
