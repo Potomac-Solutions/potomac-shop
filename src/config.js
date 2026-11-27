@@ -28,7 +28,7 @@ export function readConfig(source = process.env) {
       // Dollars per million tokens, to count spending against the budget. Set them to the model's price.
       rates: Object.freeze({ input: Number(source.AI_INPUT_PER_MTOK ?? 1), output: Number(source.AI_OUTPUT_PER_MTOK ?? 5) }),
     }),
-    // PAY_PROVIDER and its PAY_* settings are read in src/app/payments.js (choosePayments).
+    // PAY_PROVIDER and its PAY_* settings are read by the kit (src/app/payments.js, choosePayments).
     env: source,
   });
 }

@@ -10,8 +10,10 @@ export function createShop({ db, config, now = Date.now, fetch: fetcher = fetch,
   const catalog = createCatalog({ db, now });
   const accounts = createAccounts({ db, secure: config.production, now });
   const platform = choosePayments(config.env ?? {}, { fetch: fetcher });
-  const payments = createPayments({ db, provider: platform.provider, now });
-  const orders = createOrders({ db, catalog, payments, site: config.publicUrl, now, log });
+  // A cancelled order is only asked about, never charged (see createPayments).
+  let orders;
+  const payments = createPayments({ db, provider: platform.provider, now, wanted: (key) => orders?.get(key)?.state !== 'cancelled' });
+  orders = createOrders({ db, catalog, payments, site: config.publicUrl, now, log });
   const photos = createPhotos({ db, catalog, now });
   const drafts = createDrafts({ db, catalog, photos, ...config.ai, fetch: fetcher, now, business: config.business });
   return { db, catalog, accounts, platform, test: platform.test, payments, orders, photos, drafts };
