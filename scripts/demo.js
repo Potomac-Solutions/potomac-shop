@@ -26,7 +26,7 @@ migrate(db);
 const day = 86_400_000;
 let clock = Date.now() - 10 * day;
 const shop = createShop({ db, config, now: () => clock, log: () => {} });
-const { catalog, accounts, orders, test } = shop;
+const { catalog, accounts, sales, test } = shop;
 
 // The sign-ins shown on the demo's sign-in page.
 await accounts.accept(accounts.setupLink(), { email: DEMO_LOGINS.owner.email, name: DEMO_LOGINS.owner.name, password: DEMO_LOGINS.owner.password });
@@ -59,10 +59,13 @@ if (counter) catalog.act(counter.id, 'sell', { via: 'counter' }, { who: 'Ricky' 
 
 // One part bought online, through the same payment trip a buyer makes (the test page, here).
 clock += 3_600_000;
-const bought = await orders.start('2g-95-99-manual-shifter-base-shifter-oem', { name: 'Dana Whitfield', email: 'dana@example.com', phone: '304-555-0142', delivery: 'ship', address: '12 Ridge Rd, Elkins, WV 26241' });
+const { newCheckoutKey } = await import('../src/app/sales.js');
+const buyer = 'cart:demo-buyer';
+await sales.add(buyer, '2g-95-99-manual-shifter-base-shifter-oem', 1);
+const bought = await sales.start(buyer, { name: 'Dana Whitfield', email: 'dana@example.com', phone: '304-555-0142', delivery: 'ship', address: '12 Ridge Rd, Elkins, WV 26241' }, { key: newCheckoutKey() });
 if (bought.ok) {
-  test.approve(bought.ref);
-  await orders.back(bought.key);
+  test.approve(new URL(bought.url, 'http://local').searchParams.get('ref'));
+  await sales.back(bought.key);
 }
 const held = catalog.get('2g-quick-connect-manual-harness');
 if (held) catalog.act(held.id, 'hold', { until: Date.now() + 2 * day }, { who: 'Ricky' });

@@ -1,6 +1,6 @@
 // HTTP in, pages out. It knows the application's functions and nothing about SQL.
 import { createServer } from 'node:http';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { toCents } from '../domain/text.js';
 import { clientAddress, createNotices, crossSite, same } from './security.js';
 import { boundaryOf, parseMultipart } from './multipart.js';
 import { MAX_PHOTO_BYTES } from '../app/photos.js';
+import { isCheckoutKey, newCheckoutKey } from '../app/sales.js';
 import { raw } from './html.js';
 import * as store from './store.js';
 import * as admin from './admin.js';
@@ -35,7 +36,8 @@ const csp = () => [
 ].join('; ');
 
 export function createWeb({ shop, config, now = Date.now }) {
-  const { catalog, accounts, orders, photos, drafts, platform, test } = shop;
+  const { catalog, accounts, sales, photos, drafts, platform, test } = shop;
+  const baseConfig = config;
   const notices = createNotices(config.secret);
   const sign = (text) => createHmac('sha256', config.secret).update(text).digest('base64url');
 
@@ -85,6 +87,7 @@ export function createWeb({ shop, config, now = Date.now }) {
       description: form.get('description')?.trim() ?? '',
       fitment: fitmentText ? fromColumn(fitmentText) : fromTitle(title),
       lotId: Number(form.get('lot')) || null,
+      madeToOrder: form.get('made_to_order') === 'on',
     };
   }
 
@@ -94,34 +97,80 @@ export function createWeb({ shop, config, now = Date.now }) {
     return { platform: platformKey, year: year ?? '', q: (url.searchParams.get('q') ?? '').slice(0, 100), vehicle: platformKey ? { platform: platformKey, year } : null };
   }
 
+  // The buyer's cart is theirs by a signed cookie: a random id, nothing about them.
+  const CART = config.production ? '__Host-ps_cart' : 'ps_cart';
+  function cartOwner(req) {
+    const found = String(req.headers.cookie ?? '').split(/;\s*/).find((part) => part.startsWith(`${CART}=`));
+    const [id, mac] = (found?.slice(CART.length + 1) ?? '').split('.');
+    return id && mac && /^[A-Za-z0-9_-]{22}$/.test(id) && same(mac, sign(`cart.${id}`).slice(0, 22)) ? `cart:${id}` : null;
+  }
+  function newCartOwner(res) {
+    const id = randomBytes(16).toString('base64url');
+    res.setHeader('set-cookie', `${CART}=${id}.${sign(`cart.${id}`).slice(0, 22)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}${config.production ? '; Secure' : ''}`);
+    return `cart:${id}`;
+  }
+  const refuseCrossSite = (res) => send(res, 403, 'Forms here are posted from this site only.', 'text/plain; charset=utf-8');
+
   async function storefront(req, res, url) {
     const path = url.pathname;
     const t = now();
+    const owner = cartOwner(req);
+    const cart = owner ? sales.cart(owner) : { lines: [], count: 0, cents: 0, ready: false };
+    // What every storefront page shows in its header: how many are in the cart.
+    const config = { ...baseConfig, cartCount: cart.count };
 
-    // Buying a part.
-    const buy = /^\/parts\/([a-z0-9-]{1,100})\/buy$/.exec(path);
-    if (buy) {
-      const item = catalog.get(buy[1]);
-      if (!item || item.status === 'draft' || item.status === 'archived') return page(res, store.notFoundPage({ config }), 404);
-      if (req.method === 'GET') return page(res, store.buyPage({ config, item, now: t, platform }));
+    // The cart.
+    if ((path === '/cart/add' || path === '/cart/set') && req.method === 'POST') {
+      if (crossSite(req)) return refuseCrossSite(res);
+      const form = await formOf(req);
+      const handle = String(form.get('item') ?? '');
+      const qty = Number(form.get('qty') ?? (path === '/cart/add' ? 1 : 0));
+      const who = owner ?? newCartOwner(res);
+      const result = path === '/cart/add' ? await sales.add(who, handle, qty) : await sales.set(who, handle, qty);
+      if (result.error) {
+        const item = catalog.get(handle);
+        const parent = item?.parentId ? catalog.get(item.parentId) : item;
+        const words = store.SAY_BUYER[result.error] ?? 'That didn’t work. Try again.';
+        return done(res, path === '/cart/add' && parent ? `/parts/${parent.handle}` : '/cart', result.error === 'sold-out' && result.left ? `Only ${result.left} left.` : words, 'problem');
+      }
+      return redirect(res, '/cart');
+    }
+    if (path === '/cart' && req.method === 'GET') return page(res, store.cartPage({ config, cart, problem: noticeOf(url).problem }));
+
+    // Checking out: who's buying, then off to the payment platform's page.
+    if (path === '/checkout') {
+      if (req.method === 'GET') {
+        if (!cart.lines.length) return redirect(res, '/cart');
+        return page(res, store.checkoutPage({ config, cart, key: newCheckoutKey(), platform }));
+      }
       if (req.method === 'POST') {
-        if (crossSite(req)) return send(res, 403, 'Forms here are posted from this site only.', 'text/plain; charset=utf-8');
+        if (crossSite(req)) return refuseCrossSite(res);
         const form = Object.fromEntries(await formOf(req));
-        const started = await orders.start(item.handle, form);
-        if (started.error) return page(res, store.buyPage({ config, item: catalog.get(item.handle), now: t, platform, problem: store.SAY_BUYER[started.error] ?? 'That didn’t work. Try again.', form }), started.error === 'gone' ? 409 : 422);
-        if (started.url) return redirect(res, started.url);
-        return page(res, store.orderPage({ config, order: orders.get(started.key), item, problem: 'This payment platform isn’t supported on this store yet.' }));
+        const key = isCheckoutKey(form.checkout) ? form.checkout : newCheckoutKey();
+        const started = owner ? await sales.start(owner, form, { key }) : { error: 'empty' };
+        if (started.error) {
+          if (started.error === 'gone' || started.error === 'empty') return done(res, '/cart', store.SAY_BUYER[started.error], 'problem');
+          return page(res, store.checkoutPage({ config, cart: sales.cart(owner), key, platform, problem: store.SAY_BUYER[started.error] ?? 'That didn’t work. Try again.', form }), 422);
+        }
+        return redirect(res, started.url ?? `/orders/${started.key}`);
       }
     }
-
-    const order = /^\/orders\/([A-Za-z0-9_-]{24})(\/cancel)?$/.exec(path);
-    if (order && req.method === 'GET') {
-      if (order[2] && orders.cancel(order[1]).error === 'no-order') return page(res, store.notFoundPage({ config }), 404);
-      const result = order[2] ? { order: orders.get(order[1]) } : await orders.back(order[1]);
-      if (result.error || !result.order) return page(res, store.notFoundPage({ config }), 404);
-      const item = catalog.get(result.order.itemId);
-      return page(res, store.orderPage({ config, order: result.order, item, waiting: result.waiting }), 200, { 'referrer-policy': 'no-referrer' });
+    // The payment platform sends the buyer back here, with ?checkout=<key>.
+    if ((path === '/checkout/back' || path === '/checkout/cancel') && req.method === 'GET') {
+      const key = url.searchParams.get('checkout') ?? '';
+      if (!isCheckoutKey(key) || !sales.get(key)) return page(res, store.notFoundPage({ config }), 404);
+      if (path === '/checkout/cancel' && owner) await sales.cancel(owner, key);
+      return redirect(res, `/orders/${key}`);
     }
+    const order = /^\/orders\/([A-Za-z0-9_-]{24})$/.exec(path);
+    if (order && req.method === 'GET') {
+      const result = await sales.back(order[1]);
+      if (result.error) return page(res, store.notFoundPage({ config }), 404);
+      return page(res, store.orderPage({ config: { ...config, cartCount: sales.cart(owner ?? '').count }, order: result.checkout, waiting: result.waiting }), 200, { 'referrer-policy': 'no-referrer' });
+    }
+    // The single-part "Buy it" page from before carts.
+    const buy = /^\/parts\/([a-z0-9-]{1,100})\/buy$/.exec(path);
+    if (buy) return redirect(res, `/parts/${buy[1]}`);
 
     // The test payment page, used until the payment platform's settings are set.
     if (path === '/pay/test' && platform.name === 'test') {
@@ -145,7 +194,7 @@ export function createWeb({ shop, config, now = Date.now }) {
     // The payment platform's webhook.
     if (path === '/pay/webhook' && req.method === 'POST') {
       const body = (await readBody(req, MAX_BODY)).toString('utf8');
-      const heard = await orders.heard({ headers: req.headers, body, url: `${config.publicUrl}${path}` });
+      const heard = await sales.heard({ headers: req.headers, body, url: `${config.publicUrl}${path}` });
       return send(res, heard.error ? 401 : 200, heard.error ? 'refused' : 'ok', 'text/plain; charset=utf-8');
     }
 
@@ -159,8 +208,10 @@ export function createWeb({ shop, config, now = Date.now }) {
     const part = /^\/parts\/([a-z0-9-]{1,100})$/.exec(path);
     if (part) {
       const item = catalog.get(part[1]);
+      // A size's own address goes to the item it is a size of.
+      if (item?.parentId) return redirect(res, `/parts/${catalog.get(item.parentId)?.handle ?? ''}`);
       if (!item || item.status === 'draft' || item.status === 'archived') return page(res, store.notFoundPage({ config }), 404);
-      return page(res, store.partPage({ config, item, now: t }));
+      return page(res, store.partPage({ config, item, now: t, problem: noticeOf(url).problem }));
     }
     const media = /^\/media\/(\d{1,12})\.(jpg|png|webp)$/.exec(path);
     if (media) {
@@ -171,7 +222,7 @@ export function createWeb({ shop, config, now = Date.now }) {
     if (path === '/feeds/google.tsv') return send(res, 200, catalog.exportAs('google', { site: config.publicUrl }), 'text/tab-separated-values; charset=utf-8', { 'cache-control': 'max-age=300' });
     if (path === '/feeds/meta.csv') return send(res, 200, catalog.exportAs('meta', { site: config.publicUrl, business: config.business }), 'text/csv; charset=utf-8', { 'cache-control': 'max-age=300' });
     if (path === '/healthz') return send(res, 200, JSON.stringify({ ok: true }), 'application/json');
-    if (path === '/robots.txt') return send(res, 200, 'User-agent: *\nDisallow: /admin\nDisallow: /orders\n', 'text/plain; charset=utf-8');
+    if (path === '/robots.txt') return send(res, 200, 'User-agent: *\nDisallow: /admin\nDisallow: /orders\nDisallow: /cart\nDisallow: /checkout\n', 'text/plain; charset=utf-8');
     if (path.startsWith('/static/')) return staticFile(res, path.slice('/static/'.length));
     return page(res, store.notFoundPage({ config }), 404);
   }
@@ -243,7 +294,7 @@ export function createWeb({ shop, config, now = Date.now }) {
     }
 
     if (path === '/admin' && !form) {
-      return page(res, admin.dashboardPage({ ...view, summary: catalog.summary(), drafts: catalog.list({ status: 'draft', limit: 10 }), recent: catalog.activity({ limit: 15 }), orders: owner ? orders.list({ limit: 5 }) : [] }));
+      return page(res, admin.dashboardPage({ ...view, summary: catalog.summary(), drafts: catalog.list({ status: 'draft', limit: 10 }), recent: catalog.activity({ limit: 15 }), orders: owner ? sales.list({ limit: 5 }) : [] }));
     }
 
     if (path === '/admin/items' && !form) {
@@ -300,6 +351,19 @@ export function createWeb({ shop, config, now = Date.now }) {
         const removed = photos.remove(id, form.get('src') ?? '', { who: who.name });
         return removed.error ? done(res, `/admin/items/${id}`, 'That photo isn’t on this part.', 'problem') : done(res, `/admin/items/${id}`, 'Photo removed.');
       }
+      if (action === 'sizes' && form) {
+        if (!owner) return refuse();
+        const priceCents = toCents(form.get('price')) ?? -1;
+        const quantity = form.get('quantity') === '' || form.get('quantity') == null ? 0 : Number(form.get('quantity'));
+        const madeToOrder = form.get('made_to_order') === 'on';
+        const sizeId = Number(form.get('size')) || null;
+        const size = sizeId ? catalog.get(sizeId) : null;
+        if (sizeId && size?.parentId !== id) return done(res, `/admin/items/${id}`, 'That size isn’t on this item.', 'problem');
+        const result = size
+          ? catalog.edit(size.id, { priceCents, quantity: Number.isInteger(quantity) ? quantity : -1, madeToOrder }, { who: who.name })
+          : catalog.addSize(id, { option: form.get('option') ?? '', priceCents, quantity: Number.isInteger(quantity) ? quantity : -1, madeToOrder }, { who: who.name });
+        return result.error ? done(res, `/admin/items/${id}`, admin.SAY[result.error] ?? 'That didn’t work.', 'problem') : done(res, `/admin/items/${id}`, size ? `${size.option} saved.` : 'Size added.');
+      }
       if (action === 'draft' && form) {
         const drafted = await drafts.draft(id, { who: who.name });
         if (drafted.error) return done(res, `/admin/items/${id}`, admin.SAY[drafted.error] ?? 'The AI draft didn’t work. Try again.', 'problem');
@@ -343,7 +407,13 @@ export function createWeb({ shop, config, now = Date.now }) {
       return result.error ? done(res, '/admin/people', result.error, 'problem') : done(res, '/admin/people', person[2] === 'off' ? 'Turned off and signed out.' : 'Turned back on.');
     }
 
-    if (path === '/admin/orders' && !form) return page(res, admin.ordersPage({ ...view, orders: orders.list({ limit: 200 }) }));
+    if (path === '/admin/orders' && !form) return page(res, admin.ordersPage({ ...view, orders: sales.list({ limit: 200 }) }));
+    const step = /^\/admin\/orders\/([A-Za-z0-9_-]{24})\/(packed|sent)$/.exec(path);
+    if (step && form) {
+      if (!owner) return done(res, '/admin/orders', 'Only owners fill orders.', 'problem');
+      const moved = await sales.advance(step[1], step[2]);
+      return done(res, '/admin/orders', moved.ok ? `Marked ${step[2]}.` : 'That order isn’t at that step.', moved.ok ? 'done' : 'problem');
+    }
 
     if (path === '/admin/import' && !form) return page(res, admin.importPage({ ...view, batches: catalog.batches() }));
     if ((path === '/admin/import/preview' || path === '/admin/import/commit') && form) {
