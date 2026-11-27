@@ -1,0 +1,177 @@
+/* Potomac Shop, Garrett County Adventures theme. Loaded after shop.css. The shop is a room of
+   garrettcountyadventures.com, so it takes the site's own palette, type and chrome: cream paper,
+   forest and leaf greens, a gold for the one thing to press, Manrope over DM Sans, and the same
+   forest footer. The one bold move is the hero: the site's own sunset, so leaving the site for the
+   shop doesn't feel like leaving. */
+
+:root {
+  --page: #f3f1e8;
+  --raised: #fffdf7;
+  --soft: #e8ebe0;
+  --ink: #253a30;
+  --forest: #203a31;
+  --leaf: #41694e;
+  --gold: #dfb56a;
+  --gold-ink: #302a1f;
+  --focus: #b85d13;
+  --danger: #a3402c;
+
+  /* shop.css's names, in this theme's colours */
+  --bg: var(--page);
+  --surface: var(--raised);
+  --surface-alt: var(--soft);
+  --line: #d2d9ce;
+  --text: var(--ink);
+  --muted: #58685d;
+  --red: var(--danger);
+  --red-deep: var(--leaf);
+  --yellow: var(--leaf);
+  --slate: var(--forest);
+  --good: #2f6f48;
+  --radius: 10px;
+  --heading: "Manrope", system-ui, sans-serif;
+  --body: "DM Sans", system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #171d19;
+    --raised: #27332b;
+    --soft: #2b3930;
+    --ink: #edf1e8;
+    --forest: #18352e;
+    --leaf: #8cbd8f;
+    --gold: #e6bb73;
+    --gold-ink: #2d2619;
+    --focus: #f2b45f;
+    --danger: #e58b78;
+    --line: #465449;
+    --muted: #b8c3b5;
+    --good: #8cbd8f;
+  }
+}
+
+body { font: 16px/1.6 var(--body); min-height: 100vh; display: flex; flex-direction: column; }
+main { flex: 1 0 auto; width: 100%; }
+/* The site labels sections with its headings, not tracked-out capitals. */
+.eyebrow { display: none; }
+a { color: var(--leaf); text-underline-offset: 3px; }
+a:hover { color: var(--forest); }
+@media (prefers-color-scheme: dark) { a:hover { color: var(--ink); } }
+:focus-visible, input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+h1, h2, h3 { font-family: var(--heading); letter-spacing: -0.02em; color: var(--ink); }
+h1 { font-size: clamp(2rem, 5vw, 3.1rem); font-weight: 800; letter-spacing: -0.045em; line-height: 1.06; }
+h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 800; text-transform: none; letter-spacing: -0.03em; }
+h3 { font-family: var(--heading); font-weight: 700; font-size: 1.05rem; }
+.skip:focus { background: var(--gold); color: var(--gold-ink); }
+
+/* The site's header: cream, the name on the left, the site's own sections on the right. */
+.top { position: static; min-height: 78px; padding: 10px max(24px, calc((100% - 1160px) / 2)); background: var(--raised); border-bottom: 1px solid var(--line); }
+.brand { font-family: var(--heading); font-size: 16px; font-weight: 800; letter-spacing: 0; text-transform: none; color: var(--ink); }
+.top nav { gap: 0.3rem clamp(14px, 2.5vw, 32px); }
+.top nav a { color: var(--muted); font-size: 13px; font-weight: 700; }
+.top nav a:hover { color: var(--leaf); text-decoration: underline; text-underline-offset: 4px; }
+.top nav a[aria-current] { color: var(--ink); }
+.cart-link { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink) !important; }
+.cart-link .count { background: var(--forest); color: #fff; }
+.demo-bar { background: var(--soft); color: var(--ink); }
+.demo-bar a { color: var(--leaf); }
+
+main { max-width: 1160px; padding: 0 32px 72px; }
+main.wide { max-width: none; padding: 0 0 72px; }
+@media (max-width: 40rem) { main { padding: 0 20px 56px; } }
+
+/* Buttons: leaf for doing, gold for the one big invitation. */
+button, .button { font: 800 13px var(--body); border-radius: 7px; min-height: 48px; padding: 12px 20px; background: var(--leaf); color: #fff; }
+button:hover, .button:hover { background: var(--forest); color: #fff; }
+@media (prefers-color-scheme: dark) { button, .button { color: #10251e; } button:hover, .button:hover { background: #a9d3ab; color: #10251e; } }
+.button-gold, button.primary.gold { background: var(--gold); color: var(--gold-ink); }
+.button-gold:hover { background: #f4cd80; color: var(--gold-ink); }
+button.small, .button.small { min-height: 36px; padding: 7px 12px; font-size: 12px; background: var(--raised); color: var(--ink); border: 1px solid var(--line); }
+button.small:hover, .button.small:hover { background: var(--soft); color: var(--ink); }
+button.small.primary { background: var(--leaf); border-color: var(--leaf); color: #fff; }
+.button.ghost, button.ghost { background: transparent; color: var(--leaf); border: 1px solid var(--line); }
+.button.ghost:hover, button.ghost:hover { background: var(--soft); color: var(--forest); }
+
+input, select, textarea { background: var(--raised); color: var(--ink); border-color: #c4ccc1; border-radius: 7px; }
+label { color: var(--muted); font-size: 13px; font-weight: 600; }
+legend { color: var(--ink); font-weight: 700; font-size: 14px; }
+fieldset { border-color: var(--line); }
+
+/* The hero: the site's own sunset, the same forest wash, the same left-hand words. */
+.shop-hero { position: relative; isolation: isolate; overflow: hidden; min-height: 420px; display: flex; align-items: center; background: linear-gradient(112deg, #173e34 2%, #245548 54%, #3d6551 100%); color: #fff; }
+.shop-hero::before { content: ""; position: absolute; z-index: -1; inset: 0; background: radial-gradient(ellipse at 77% 18%, #f2cc8230 0, #f2cc8212 12%, transparent 35%), linear-gradient(90deg, #10251ef2 0%, #10251ed1 43%, #10251e52 78%, #10251e18 100%), linear-gradient(0deg, #10251ecf 0%, #10251e40 48%, transparent 100%); pointer-events: none; }
+.shop-hero-image { position: absolute; z-index: -2; top: 0; right: 0; width: min(72%, 1050px); height: 100%; object-fit: cover; opacity: .82; -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 32%); mask-image: linear-gradient(90deg, transparent 0%, #000 32%); }
+.shop-hero-copy { width: min(1160px, 100%); margin: 0 auto; padding: 72px 32px 78px; }
+.shop-hero h1 { max-width: 640px; margin: 0; color: #fff; font-size: clamp(2.6rem, 6.6vw, 4.6rem); letter-spacing: -0.05em; line-height: 1.02; }
+.shop-hero p { max-width: 560px; margin: 22px 0 28px; color: #e2e9e1; font-size: clamp(16px, 2vw, 19px); line-height: 1.65; }
+@media (max-width: 40rem) { .shop-hero-image { width: 100%; opacity: .45; } .shop-hero-copy { padding: 56px 20px 60px; } }
+.shop-strip { margin: 0; padding: 17px max(24px, calc((100% - 1100px) / 2)); background: var(--soft); color: var(--ink); font-family: Georgia, serif; font-size: 16px; font-style: italic; }
+
+/* The shelf */
+.shelf { max-width: 1160px; margin: 0 auto; padding: 64px 32px 0; }
+@media (max-width: 40rem) { .shelf { padding: 44px 20px 0; } }
+.shelf-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 32px; margin-bottom: 28px; }
+.shelf-head h2 { margin: 0; }
+.shelf-head p { max-width: 420px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+.grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 15.5rem), 1fr)); gap: 18px; }
+.card a { padding: 0; overflow: hidden; background: var(--raised); border-color: var(--line); color: var(--ink); box-shadow: 0 8px 25px #152e2510; transition: border-color .15s ease; }
+.card a:hover { border-color: var(--leaf); }
+.card-image { position: relative; aspect-ratio: 4 / 3; border-radius: 0; background: var(--soft); }
+.card-image img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 9%; }
+.card h3 { margin: 16px 18px 4px; font-size: 18px; line-height: 1.3; }
+.card .price { margin: 0 18px; color: var(--ink); font-weight: 700; }
+.card-note { min-height: 1.4em; margin: 6px 18px 18px; color: var(--muted); font-size: 13px; }
+.no-photo { color: var(--muted); }
+.empty { color: var(--muted); }
+
+/* An item */
+.part { padding-top: 40px; gap: clamp(24px, 5vw, 56px); }
+.gallery img { background: var(--soft); border: 1px solid var(--line); padding: 12%; aspect-ratio: 1; object-fit: contain; max-height: 34rem; }
+.crumbs { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+.price { color: var(--ink); }
+.price.big { font-family: var(--heading); font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em; }
+.part-info .quiet { color: var(--muted); }
+.stock { color: var(--good); font-weight: 700; font-size: 14px; }
+.stock.gone { color: var(--danger); }
+.add-form { max-width: 26rem; }
+
+/* Cart, checkout, order */
+.section { padding: 40px 0 8px; }
+.checkout { max-width: 44rem; }
+.cart-line { background: var(--raised); border-color: var(--line); }
+.cart-line img, .cart-line .no-photo.small { background: var(--soft); padding: 4px; }
+.cart-summary li { border-color: var(--line); }
+.panel { background: var(--raised); border-color: var(--line); }
+.hint { color: var(--muted); }
+.problem { background: #f7e3dc; border-color: var(--danger); color: #5a2416; }
+.notice, .notice-ok, .ok { background: #e2efe3; border-color: var(--good); color: #173b26; }
+@media (prefers-color-scheme: dark) { .problem { background: #3b1f18; color: #f5d6cd; } .notice, .notice-ok, .ok { background: #1f3326; color: #dcebdc; } }
+.test-pay { border-color: var(--muted); }
+
+/* The site's footer */
+.foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 25px max(24px, calc((100% - 1160px) / 2)); border: 0; background: var(--forest); color: #e0e9df; font-size: 12px; }
+.foot a { color: #fff; font-weight: 700; text-decoration: none; }
+.foot a:hover { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
+.foot > span { color: #c1d1c4; }
+.foot nav { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-left: auto; }
+.foot-brand { font-family: var(--heading); font-size: 13px; }
+.foot-credit { width: 100%; text-align: right; }
+.foot-credit a { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 48rem) { .foot { flex-direction: column; align-items: flex-start; } .foot nav { margin-left: 0; } .foot-credit { text-align: left; } }
+
+/* The owner's side, in the same colours */
+.admin .top { position: sticky; top: 0; z-index: 5; }
+.badge { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 9px; }
+.badge-active { border-color: var(--good); color: var(--good); }
+.badge-draft { border-color: #b08a3c; color: #7a5b1c; }
+.badge-held { border-color: var(--forest); color: var(--forest); }
+.badge-sold { border-color: var(--danger); color: var(--danger); }
+@media (prefers-color-scheme: dark) { .badge-draft { color: var(--gold); border-color: var(--gold); } .badge-held { color: var(--ink); border-color: var(--ink); } }
+.stat span { font-family: var(--heading); font-weight: 800; }
+.stat:hover { border-color: var(--leaf); }
+.tabs a[aria-current] { background: var(--leaf); border-color: var(--leaf); color: #fff; }
+.panel.warn, .demo-login { border-color: #b08a3c; }
+summary { color: var(--leaf); }
+code { background: var(--soft); }
+.tag { border-color: var(--line); color: var(--muted); }

@@ -146,7 +146,7 @@ export function createWeb({ shop, config, now = Date.now }) {
         const item = catalog.get(handle);
         const parent = item?.parentId ? catalog.get(item.parentId) : item;
         const words = store.SAY_BUYER[result.error] ?? 'That didn’t work. Try again.';
-        return done(res, path === '/cart/add' && parent ? `/parts/${parent.handle}` : '/cart', result.error === 'sold-out' && result.left ? `Only ${result.left} left.` : words, 'problem');
+        return done(res, path === '/cart/add' && parent ? store.itemPath(config, parent.handle) : '/cart', result.error === 'sold-out' && result.left ? `Only ${result.left} left.` : words, 'problem');
       }
       return redirect(res, '/cart');
     }
@@ -196,8 +196,8 @@ export function createWeb({ shop, config, now = Date.now }) {
       return page(res, store.orderPage({ config: { ...config, cartCount: sales.cart(owner ?? '').count }, order: result.checkout, waiting: result.waiting }), 200, { 'referrer-policy': 'no-referrer' });
     }
     // The single-part "Buy it" page from before carts.
-    const buy = /^\/parts\/([a-z0-9-]{1,100})\/buy$/.exec(path);
-    if (buy) return redirect(res, `/parts/${buy[1]}`);
+    const buy = /^\/(?:parts|products)\/([a-z0-9-]{1,100})\/buy$/.exec(path);
+    if (buy) return redirect(res, store.itemPath(config, buy[1]));
 
     // The test payment page, used until the payment platform's settings are set.
     if (path === '/pay/test' && platform.name === 'test') {
@@ -234,17 +234,17 @@ export function createWeb({ shop, config, now = Date.now }) {
     }
 
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed', 'text/plain');
-    if (path === '/') return page(res, store.homePage({ config, items: catalog.list({ status: 'active', limit: 12 }), now: t }));
-    if (path === '/parts') {
-      const filter = vehicleFilter(url);
+    if (path === '/') return page(res, store.homePage({ config, items: catalog.list({ status: 'active', limit: config.theme.home ? 60 : 12 }), now: t }));
+    if (path === '/parts' || path === '/products') {
+      const filter = config.theme.auto ? vehicleFilter(url) : { platform: '', year: '', q: (url.searchParams.get('q') ?? '').slice(0, 100), vehicle: null };
       const items = catalog.list({ status: ['active', 'held'], q: filter.q, vehicle: filter.vehicle, limit: 300 });
       return page(res, store.listPage({ config, items, now: t, filter }));
     }
-    const part = /^\/parts\/([a-z0-9-]{1,100})$/.exec(path);
+    const part = /^\/(?:parts|products)\/([a-z0-9-]{1,100})$/.exec(path);
     if (part) {
       const item = catalog.get(part[1]);
       // A size's own address goes to the item it is a size of.
-      if (item?.parentId) return redirect(res, `/parts/${catalog.get(item.parentId)?.handle ?? ''}`);
+      if (item?.parentId) return redirect(res, store.itemPath(config, catalog.get(item.parentId)?.handle ?? ''));
       if (!item || item.status === 'draft' || item.status === 'archived') return page(res, store.notFoundPage({ config }), 404);
       return page(res, store.partPage({ config, item, now: t, problem: noticeOf(url).problem }));
     }

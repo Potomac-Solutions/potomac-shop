@@ -57,12 +57,15 @@ export const DEMO_LOGINS = {
   helper: { email: 'helper@rix.example', name: 'Shop helper', password: 'rix-helper-demo' },
 };
 
-const demoLogins = () => html`<section class="panel demo-login">
+const demoLogins = (config) => {
+  const logins = config.theme.demoLogins ?? DEMO_LOGINS;
+  return html`<section class="panel demo-login">
   <h2>Try the dashboard</h2>
-  <p>This is a demo. Sign in as the <strong>owner</strong> to see everything, or as the <strong>helper</strong>, who can photograph and draft parts but not list or sell them.</p>
-  <p><strong>Owner</strong>: ${DEMO_LOGINS.owner.email} · ${DEMO_LOGINS.owner.password}<br><strong>Helper</strong>: ${DEMO_LOGINS.helper.email} · ${DEMO_LOGINS.helper.password}</p>
+  <p>This is a demo. Sign in as the <strong>owner</strong> to see everything, or as the <strong>helper</strong>, who can photograph and draft ${config.theme.words.items} but not list or sell them.</p>
+  <p><strong>Owner</strong>: ${logins.owner.email}, password ${logins.owner.password}<br><strong>Helper</strong>: ${logins.helper.email}, password ${logins.helper.password}</p>
   <p class="hint">Everything resets overnight. Nothing is really sold.</p>
 </section>`;
+};
 
 export function adminLayout({ config, title, body, who = null, token = '', notice = '', problem = '', signIn = false }) {
   const owner = who?.role === 'owner';
@@ -74,17 +77,18 @@ export function adminLayout({ config, title, body, who = null, token = '', notic
 <meta name="robots" content="noindex">
 <title>${title} · ${config.business} dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Roboto:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="${config.theme.fonts}">
 <link rel="stylesheet" href="/static/shop.css">
+${config.theme.css ? html`<link rel="stylesheet" href="${config.theme.css}">` : ''}
 <script src="/static/admin.js" defer></script>
 </head>
 <body class="admin">
 <header class="top">
-  <a class="brand" href="/admin"><span class="brand-mark">RIX</span> Dashboard</a>
+  <a class="brand" href="/admin">${config.theme.brand.mark ? html`<span class="brand-mark">${config.theme.brand.mark}</span> ` : html`${config.business} `}Dashboard</a>
   ${who ? html`<nav aria-label="Dashboard">
-    <a href="/admin/items/new">+ List a part</a>
-    <a href="/admin/items">Parts</a>
-    <a href="/admin/lots">Donor cars</a>
+    <a href="/admin/items/new">+ List ${config.theme.auto ? 'a part' : 'an item'}</a>
+    <a href="/admin/items">${config.theme.auto ? 'Parts' : 'Items'}</a>
+    ${config.theme.auto ? html`<a href="/admin/lots">Donor cars</a>` : ''}
     ${owner ? html`<a href="/admin/orders">Orders</a><a href="/admin/import">Import</a><a href="/admin/channels">Channels</a><a href="/admin/people">People</a>` : ''}
     <a href="/" target="_blank" rel="noopener">Store ↗</a>
     <form method="post" action="/admin/sign-out" class="inline"><input type="hidden" name="token" value="${token}"><button class="link">Sign out</button></form>
@@ -93,7 +97,7 @@ export function adminLayout({ config, title, body, who = null, token = '', notic
 <main id="main" class="admin-main">
 ${notice ? html`<p class="notice-ok" role="status">${notice}</p>` : ''}
 ${problem ? html`<p class="problem" role="alert">${problem}</p>` : ''}
-${signIn && config.demo ? demoLogins() : ''}
+${signIn && config.demo ? demoLogins(config) : ''}
 ${body}
 </main>
 </body>

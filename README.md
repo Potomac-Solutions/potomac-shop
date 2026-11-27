@@ -33,6 +33,7 @@ Needs Node 22.13 or later. One dependency: the Potomac kit (`@potomac-solutions/
 ```sh
 npm test
 npm run demo                 # wipes data/demo.db, imports the Rix fixture, starts on :3000
+npm run demo:gcadv           # Garrett County Adventures' shop: its theme, test printers, one paid order
 npm start                    # a real store: data/potomac-shop.db
 npm run import -- products_export.csv            # preview an export
 npm run import -- products_export.csv --commit   # import it
@@ -57,7 +58,9 @@ The dashboard is at `/admin`. A new store prints a one-time link for the first o
 | `ANTHROPIC_API_KEY` | Turns on AI drafts |
 | `AI_MODEL`, `AI_MONTHLY_DOLLARS`, `AI_INPUT_PER_MTOK`, `AI_OUTPUT_PER_MTOK` | The model (`claude-haiku-5-5`), the monthly budget ($10), and its price per million tokens (set these to the model's real price) |
 | `DATABASE_PATH` | SQLite file; point it at a volume (`data/potomac-shop.db`) |
-| `BUSINESS_NAME`, `BUSINESS_TAGLINE`, `BUSINESS_PLACE` | Shown in the store |
+| `STORE_THEME` | `rix` (the default: the whole store, auto pack on) or `gcadv` (Garrett County Adventures' shop beside its site: that site's look, header and footer, auto pack off). Themes live in `src/themes.js` and `public/themes/` |
+| `SITE_URL` | The business's own site, for a store that sits beside it (header, footer and hero link back to it) |
+| `BUSINESS_NAME`, `BUSINESS_TAGLINE`, `BUSINESS_PLACE` | Shown in the store; a theme can set its own defaults |
 | `CONTACT_EMAIL`, `CONTACT_FACEBOOK` | Where "Ask about this part" goes |
 | `DEMO=1` | Shows the demo bar and sign-in; set by `npm run demo` |
 
