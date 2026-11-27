@@ -87,6 +87,7 @@ function finish(draft, options) {
     weightGrams: draft.weightGrams ?? null,
     images: draft.images ?? [],
     status: draft.status ?? 'active',
+    sourceRef: draft.sourceRef ?? '',
     fitment,
     row: draft.row,
     problems,
@@ -130,6 +131,7 @@ function shopify(rows, options) {
         weightGrams: weightGrams(pick(row, 'Variant Grams', 'Weight value (grams)'), 'g'),
         images: [pick(row, 'Variant Image', 'Variant image URL'), ...images].filter((src, at, all) => src && all.indexOf(src) === at),
         status: status === 'draft' ? 'draft' : status === 'archived' ? 'archived' : published && !yes(published) ? 'draft' : 'active',
+        sourceRef: handle,
         row: line,
       }, options));
     }

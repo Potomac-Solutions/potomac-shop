@@ -16,6 +16,8 @@ if (config.demo) shop.accounts = lockedAccounts(shop.accounts);
 const { server } = createWeb({ shop, config });
 // Keep stock in step with the counter, if it's connected.
 if (shop.pos) shop.pos.start();
+// List into Shopify, if it's connected.
+if (shop.shopify) shop.shopify.start();
 
 if (config.demo) {
   // The demo resets every night at 4 am Eastern: the process exits and the host starts it again

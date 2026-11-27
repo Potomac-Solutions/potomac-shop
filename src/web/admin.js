@@ -390,7 +390,7 @@ ${lots.length ? html`<ul class="rows">${lots.map((lot) => html`<li class="row"><
   });
 }
 
-export function channelsPage({ config, who, token, items, payment, ai, pos, now }) {
+export function channelsPage({ config, who, token, items, payment, ai, pos, shopify, now }) {
   const listed = items.filter((item) => item.status === 'active' || item.status === 'held');
   const inFeed = listed.filter((item) => webImages(item.images).length > 0);
   const live = listed.filter((item) => buyable(item, now));
@@ -408,6 +408,14 @@ export function channelsPage({ config, who, token, items, payment, ai, pos, now 
     ? html`<strong>test page</strong> (no money moves). ${payment.asked && payment.asked !== 'test' ? `${payment.asked} is named but its settings aren’t all there.` : 'Set PAY_PROVIDER=square with PAY_SQUARE_TOKEN and PAY_SQUARE_LOCATION to take real payments.'}`
     : html`<strong>${payment.label}</strong>${payment.sandbox ? ' (sandbox: no real money)' : ''}. Webhook address: <code>${config.publicUrl}/pay/webhook</code>`}</p>
   <p>AI drafts: ${ai.enabled ? `on. This month $${ai.budget().spent.toFixed(2)} of $${ai.budget().limit.toFixed(2)}.` : 'off. Set ANTHROPIC_API_KEY to draft listings from photos.'}</p>
+</section>
+<section class="panel">
+  <h2>Shopify</h2>
+  ${shopify ? html`<p>Listing into <strong>${shopify.store}</strong>${config.storefrontUrl ? html`, the store buyers see (${config.storefrontUrl})` : ''}. ${shopify.linked} parts linked: ${shopify.owned} listed from here, ${shopify.linked - shopify.owned} already in Shopify. ${shopify.due ? html`<strong>${shopify.due}</strong> waiting to be sent.` : 'All sent.'}</p>
+  ${shopify.error ? html`<p class="problem">Shopify said: ${shopify.error}</p>` : ''}
+  <p class="quiet">Parts listed here become Shopify products with their photos, details, price and stock. Products already in Shopify are matched by handle and only get their price and stock from here. An order paid on Shopify marks the part sold here and at the counter. Webhook address for Shopify’s <em>Order payment</em> event: <code>${config.publicUrl}/shopify/webhook</code></p>
+  <form method="post" action="/admin/shopify/sync"><input type="hidden" name="token" value="${token}"><button class="small">Send changes now</button></form>`
+    : html`<p>Not connected. To keep a Shopify store as the store buyers see and list into it from here, make an app in Shopify’s Dev Dashboard, in the store’s own organization, with product and inventory permissions. Then set <code>SHOPIFY_STORE</code> (the myshopify.com address), <code>SHOPIFY_CLIENT_ID</code> and <code>SHOPIFY_CLIENT_SECRET</code>, and <code>STOREFRONT_URL</code> to send buyers there.</p>`}
 </section>
 <section class="panel">
   <h2>The counter (Square point of sale)</h2>

@@ -35,7 +35,7 @@ const csp = () => [
 ].join('; ');
 
 export function createWeb({ shop, config, now = Date.now }) {
-  const { catalog, accounts, orders, photos, drafts, platform, test, pos } = shop;
+  const { catalog, accounts, orders, photos, drafts, platform, test, pos, shopify } = shop;
   const notices = createNotices(config.secret);
   const sign = (text) => createHmac('sha256', config.secret).update(text).digest('base64url');
 
@@ -151,7 +151,20 @@ export function createWeb({ shop, config, now = Date.now }) {
       return send(res, refused ? 401 : 200, refused ? 'refused' : 'ok', 'text/plain; charset=utf-8');
     }
 
+    // Shopify's webhook: an order paid there marks its parts sold here.
+    if (path === '/shopify/webhook' && req.method === 'POST') {
+      const body = (await readBody(req, 1024 * 1024)).toString('utf8');
+      const heard = shopify ? shopify.heard({ headers: req.headers, body }) : { ignore: true };
+      return send(res, heard.error ? 401 : 200, heard.error ? 'refused' : 'ok', 'text/plain; charset=utf-8');
+    }
+
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed', 'text/plain');
+    // Listing-tool mode: buyers shop on the store's own site.
+    if (config.storefrontUrl && (path === '/' || path === '/parts' || /^\/parts\/[a-z0-9-]{1,100}(\/buy)?$/.test(path))) {
+      const handle = /^\/parts\/([a-z0-9-]{1,100})/.exec(path)?.[1];
+      res.writeHead(302, { location: handle ? `${config.storefrontUrl}/products/${handle}` : config.storefrontUrl });
+      return res.end();
+    }
     if (path === '/') return page(res, store.homePage({ config, items: catalog.list({ status: 'active', limit: 12 }), now: t }));
     if (path === '/parts') {
       const filter = vehicleFilter(url);
@@ -366,7 +379,13 @@ export function createWeb({ shop, config, now = Date.now }) {
       return result.error ? done(res, '/admin/import', admin.SAY[result.error], 'problem') : done(res, '/admin/import', `Undone: ${result.count} parts put back.`);
     }
 
-    if (path === '/admin/channels' && !form) return page(res, admin.channelsPage({ ...view, items: catalog.list({ limit: 100_000 }), payment: { name: platform.name, label: PLATFORM_NAMES[platform.name], asked: platform.asked, sandbox: platform.sandbox }, ai: drafts, pos: pos ? pos.status() : null }));
+    if (path === '/admin/channels' && !form) return page(res, admin.channelsPage({ ...view, items: catalog.list({ limit: 100_000 }), payment: { name: platform.name, label: PLATFORM_NAMES[platform.name], asked: platform.asked, sandbox: platform.sandbox }, ai: drafts, pos: pos ? pos.status() : null, shopify: shopify ? shopify.status() : null }));
+    if (path === '/admin/shopify/sync' && form) {
+      if (!shopify) return done(res, '/admin/channels', 'Shopify isn’t connected.', 'problem');
+      const result = await shopify.flush();
+      const after = shopify.status();
+      return after.error ? done(res, '/admin/channels', `Shopify said: ${after.error}`, 'problem') : done(res, '/admin/channels', `Sent ${result.sent} ${result.sent === 1 ? 'part' : 'parts'} to Shopify.`);
+    }
     if (path === '/admin/pos/sync' && form) {
       if (!pos) return done(res, '/admin/channels', 'Counter sync isn’t set up.', 'problem');
       const result = await pos.flush();
