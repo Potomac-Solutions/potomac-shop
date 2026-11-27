@@ -13,7 +13,8 @@
     "demo": "node scripts/demo.js",
     "migrate": "node scripts/migrate.js",
     "import": "node scripts/import.js",
-    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\""
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "demo:gcadv": "node scripts/demo-gcadv.js"
   },
   "dependencies": {
     "@potomac-solutions/kit": "github:Potomac-Solutions/potomac-kit#fe726047ce65c59ac41ea6c7c137f0099605e99f"

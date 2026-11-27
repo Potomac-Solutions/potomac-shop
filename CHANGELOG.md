@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Themes (`STORE_THEME`, `src/themes.js`): a store can run beside its business's own site and look like it. `gcadv` is Garrett County Adventures' shop: the site's palette, Manrope and DM Sans, its header and forest footer linking back (`SITE_URL`), its sunset in the hero, light and dark; the auto pack (shop by vehicle, fitment, donor cars) off and "parts" words gone; items at `/products/<handle>` (old `/parts/` addresses still work). The dashboard wears the theme too. `rix` stays the default and looks as it did.
+- `npm run demo:gcadv`: that shop with placeholder goods, the test printers and one paid order.
+
 Payments, the cart and checkout run on the Potomac kit.
 
 - A cart: add parts or sizes, change how many, check out once. Checkout is the kit's (`kit/catalog`, `kit/cart`, `kit/checkout`): every line's stock taken at once, held 30 minutes on the payment page, put back if the buyer backs out or never pays (swept every two minutes). Replaces "Buy it" for one part; old `/parts/<handle>/buy` addresses go to the part.

@@ -3,38 +3,64 @@ import { html, money, paragraphs, raw } from './html.js';
 import { PLATFORMS, describe } from '../domain/fitment.js';
 import { beingBought, buyable, webImages } from '../domain/exports.js';
 
-/** The page around every storefront page. */
-export function storeLayout({ config, title, body, description = '' }) {
-  return html`<!doctype html>
-<html lang="en" data-theme="dark">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title ? `${title} · ${config.business}` : config.business}</title>
-${description ? html`<meta name="description" content="${description}">` : ''}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Roboto:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="/static/shop.css">
-</head>
-<body>
-<a class="skip" href="#main">Skip to content</a>
-<header class="top">
-  <a class="brand" href="/"><span class="brand-mark">RIX</span> ${config.business.replace(/^Rix\s*/i, '') || config.business}</a>
-  <nav aria-label="Shop">
-    <a href="/parts">All parts</a>
-    <a href="/parts?platform=1G">1G DSM</a>
-    <a href="/parts?platform=2G">2G DSM</a>
-    <a href="/parts?platform=EVO89">EVO</a>
-    <a href="/cart" class="cart-link">Cart${config.cartCount ? html` <span class="count">${config.cartCount}</span>` : ''}</a>
+/** Where an item lives: /parts/<handle> for Rix, /products/<handle> for a general store. */
+export const itemPath = (config, handle = '') => `/${config.theme.words.path}${handle ? `/${handle}` : ''}`;
+
+function header(config) {
+  const { theme } = config;
+  const site = config.siteUrl || '';
+  const cart = html`<a href="/cart" class="cart-link">Cart${config.cartCount ? html` <span class="count">${config.cartCount}</span>` : ''}</a>`;
+  return html`<header class="top">
+  <a class="brand" href="${theme.home && site ? `${site}/` : '/'}">${theme.brand.mark ? html`<span class="brand-mark">${theme.brand.mark}</span> ` : ''}${theme.brand.name(config.business)}</a>
+  <nav aria-label="${theme.home ? 'Site' : 'Shop'}">
+    ${theme.nav(site).map(([label, href]) => html`<a href="${href}" ${href === '/' ? raw('aria-current="page"') : ''}>${label}</a>`)}
+    ${cart}
   </nav>
-</header>
-${config.demo ? html`<p class="demo-bar">Demo store. Real parts and prices from ${config.business}; nothing is really sold. <a href="/admin">See the owner’s side</a></p>` : ''}
-<main id="main">${body}</main>
-<footer class="foot">
+</header>`;
+}
+
+function footer(config) {
+  const { theme } = config;
+  const site = config.siteUrl || '';
+  const asked = config.contactEmail ? html`Questions? <a href="mailto:${config.contactEmail}">${config.contactEmail}</a>` : '';
+  if (!theme.footer) {
+    return html`<footer class="foot">
   <p><strong>${config.business}</strong> · ${config.place}</p>
   <p>Questions about a part? <a href="mailto:${config.contactEmail}">${config.contactEmail}</a> · <a href="${config.contactFacebook}" rel="noopener">Facebook</a></p>
   <p class="quiet">Store by Potomac Solutions</p>
-</footer>
+</footer>`;
+  }
+  const { line, links } = theme.footer(site);
+  return html`<footer class="foot">
+  <a class="foot-brand" href="${site}/">${config.business}</a>
+  <span>${line}</span>
+  <nav aria-label="Footer">${links.map(([label, href]) => html`<a href="${href}">${label}</a>`)}</nav>
+  <span class="foot-credit">${asked}${asked ? ' · ' : ''}Built with &lt;3 by <a href="https://potomac.solutions" rel="noopener">Potomac Solutions</a></span>
+</footer>`;
+}
+
+/** The page around every storefront page. */
+export function storeLayout({ config, title, body, description = '', wide = false }) {
+  const { theme } = config;
+  return html`<!doctype html>
+<html lang="en" ${theme.dark ? raw('data-theme="dark"') : ''}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="${theme.dark ? 'dark' : 'light dark'}">
+<title>${title ? `${title} · ${config.business}` : theme.home ? `Shop · ${config.business}` : config.business}</title>
+${description ? html`<meta name="description" content="${description}">` : ''}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="${theme.fonts}">
+<link rel="stylesheet" href="/static/shop.css">
+${theme.css ? html`<link rel="stylesheet" href="${theme.css}">` : ''}
+</head>
+<body class="theme-${theme.name}">
+<a class="skip" href="#main">Skip to content</a>
+${header(config)}
+${config.demo ? html`<p class="demo-bar">${theme.auto ? `Demo store. Real parts and prices from ${config.business}; nothing is really sold.` : 'Demo store: prices are placeholders and nothing is really sold.'} <a href="/admin">See the owner’s side</a></p>` : ''}
+<main id="main" class="${wide ? 'wide' : ''}">${body}</main>
+${footer(config)}
 </body>
 </html>`;
 }
@@ -59,11 +85,22 @@ export function vehiclePicker({ platform = '', year = '', q = '' } = {}) {
 
 const range = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
 
-function card(item, now) {
+function card(item, now, config) {
   const [image] = webImages(item.images);
   const available = buyable(item, now);
+  const from = item.sizes?.length ? Math.min(...item.sizes.map((one) => one.priceCents)) : item.priceCents;
+  if (!config.theme.auto) {
+    return html`<li class="card">
+  <a href="${itemPath(config, item.handle)}">
+    <div class="card-image">${image ? html`<img src="${image}" alt="" loading="lazy" width="400" height="400">` : html`<span class="no-photo">Photo coming</span>`}</div>
+    <h3>${item.title}</h3>
+    <p class="price">${item.sizes?.length > 1 && item.sizes.some((one) => one.priceCents !== from) ? 'From ' : ''}${money(from)}</p>
+    <p class="card-note">${!available ? 'Sold out' : item.maker ? 'Printed when you order' : item.sizes?.length ? `${item.sizes.length} sizes` : ''}</p>
+  </a>
+</li>`;
+  }
   return html`<li class="card">
-  <a href="/parts/${item.handle}">
+  <a href="${itemPath(config, item.handle)}">
     <div class="card-image">${image ? html`<img src="${image}" alt="" loading="lazy" width="400" height="400">` : html`<span class="no-photo">Photo on request</span>`}</div>
     <h3>${item.title}</h3>
     <p class="price">${item.compareAtCents ? html`<s>${money(item.compareAtCents)}</s> ` : ''}${money(item.priceCents)}</p>
@@ -72,12 +109,35 @@ function card(item, now) {
 </li>`;
 }
 
-export function grid(items, now) {
-  if (!items.length) return html`<p class="empty">Nothing listed for that yet. Much of the stock isn’t online, so ask: it may be on the shelf.</p>`;
-  return html`<ul class="grid">${items.map((item) => card(item, now))}</ul>`;
+export function grid(items, now, config) {
+  if (!items.length) return html`<p class="empty">${config.theme.auto ? 'Nothing listed for that yet. Much of the stock isn’t online, so ask: it may be on the shelf.' : 'Nothing in the shop yet. Check back soon.'}</p>`;
+  return html`<ul class="grid">${items.map((item) => card(item, now, config))}</ul>`;
 }
 
 export function homePage({ config, items, now }) {
+  const home = config.theme.home;
+  if (home) {
+    const site = config.siteUrl || '';
+    return storeLayout({
+      config,
+      title: '',
+      wide: true,
+      description: home.lede,
+      body: html`<section class="shop-hero">
+  <img class="shop-hero-image" src="${home.image(site)}" alt="${home.imageAlt}" width="1400" height="1050" fetchpriority="high">
+  <div class="shop-hero-copy">
+    <h1>${home.title}</h1>
+    <p>${home.lede}</p>
+    <a class="button button-gold" href="#shelf">See the shop</a>
+  </div>
+</section>
+<p class="shop-strip">${home.strip}</p>
+<section class="shelf" id="shelf">
+  <div class="shelf-head"><h2>${home.shelf}</h2><p>${home.shelfNote}</p></div>
+  ${grid(items, now, config)}
+</section>`,
+    });
+  }
   return storeLayout({
     config,
     title: '',
@@ -90,7 +150,7 @@ export function homePage({ config, items, now }) {
 </section>
 <section class="section">
   <div class="section-head"><h2>Fresh off the shelf</h2><a href="/parts">All parts</a></div>
-  ${grid(items, now)}
+  ${grid(items, now, config)}
 </section>
 <section class="section split">
   <div><h2>Don’t see it?</h2><p>Much of the stock never makes it online. Text, message or email with your car and the part, and we’ll check the shelves.</p></div>
@@ -100,16 +160,16 @@ export function homePage({ config, items, now }) {
 }
 
 export function listPage({ config, items, now, filter }) {
-  const p = PLATFORMS[filter.platform];
-  const heading = p ? `${filter.year ? `${filter.year} ` : ''}${p.label} parts` : 'All parts';
+  const p = config.theme.auto ? PLATFORMS[filter.platform] : null;
+  const heading = p ? `${filter.year ? `${filter.year} ` : ''}${p.label} parts` : config.theme.words.all;
   return storeLayout({
     config,
     title: heading,
     body: html`<section class="section">
   <h1>${heading}</h1>
-  ${vehiclePicker(filter)}
-  <p class="quiet">${items.length} ${items.length === 1 ? 'part' : 'parts'}${filter.q ? html` matching “${filter.q}”` : ''}</p>
-  ${grid(items, now)}
+  ${config.theme.auto ? vehiclePicker(filter) : ''}
+  <p class="quiet">${items.length} ${items.length === 1 ? config.theme.words.item : config.theme.words.items}${filter.q ? html` matching “${filter.q}”` : ''}</p>
+  ${grid(items, now, config)}
 </section>`,
   });
 }
@@ -125,17 +185,17 @@ function addToCart(item, ask) {
 ${item.maker ? html`<p class="quiet">Printed when you order and shipped to you from the printer.</p>` : ''}
 <form method="post" action="/cart/add" class="add-form">
   ${sizes.length
-    ? html`<label>Size<select name="item" required>${sizes.map((one) => html`<option value="${one.handle}" ${most(one) < 1 ? raw('disabled') : ''}>${one.option} · ${money(one.priceCents)}${most(one) < 1 ? ' · sold out' : one.madeToOrder ? '' : ` · ${one.quantity} left`}</option>`)}</select></label>`
+    ? html`<label>Size<select name="item" required>${sizes.map((one) => html`<option value="${one.handle}" ${most(one) < 1 ? raw('disabled') : ''}>${one.option} (${money(one.priceCents)}${most(one) < 1 ? ', sold out' : one.madeToOrder ? '' : `, ${one.quantity} left`})</option>`)}</select></label>`
     : html`<input type="hidden" name="item" value="${item.handle}">`}
   ${many ? html`<label>How many<input name="qty" type="number" inputmode="numeric" min="1" max="20" value="1"></label>` : html`<input type="hidden" name="qty" value="1">`}
-  <p class="buy-row"><button type="submit" class="primary">Add to cart</button> <a class="button ghost" href="${ask}">Ask about it</a></p>
+  <p class="buy-row"><button type="submit" class="primary">Add to cart</button>${ask ? html` <a class="button ghost" href="${ask}">Ask about it</a>` : ''}</p>
 </form>`;
 }
 
 export function partPage({ config, item, now, problem = '' }) {
   const images = webImages(item.images);
   const available = buyable(item, now);
-  const ask = `mailto:${config.contactEmail}?subject=${encodeURIComponent(`${item.title} (${item.sku})`)}`;
+  const ask = config.contactEmail ? `mailto:${config.contactEmail}?subject=${encodeURIComponent(`${item.title} (${item.sku})`)}` : '';
   // Product structured data, so Google reads the same price and stock as the feed.
   const data = {
     '@context': 'https://schema.org/',
@@ -147,7 +207,7 @@ export function partPage({ config, item, now, problem = '' }) {
     ...(item.mpn ? { mpn: item.mpn } : {}),
     offers: {
       '@type': 'Offer',
-      url: `${config.publicUrl}/parts/${item.handle}`,
+      url: `${config.publicUrl}${itemPath(config, item.handle)}`,
       priceCurrency: 'USD',
       price: (item.priceCents / 100).toFixed(2),
       availability: available ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
@@ -163,14 +223,14 @@ export function partPage({ config, item, now, problem = '' }) {
     ${images.length ? images.map((src, i) => html`<img src="${src}" alt="${i === 0 ? item.title : ''}" ${i ? raw('loading="lazy"') : ''}>`) : html`<div class="no-photo big">Photos on request</div>`}
   </div>
   <div class="part-info">
-    <p class="eyebrow">${item.category || 'Part'} · ${item.condition}</p>
+    ${config.theme.auto ? html`<p class="eyebrow">${item.category || 'Part'} · ${item.condition}</p>` : html`<p class="crumbs"><a href="/">Shop</a>${item.category ? html` / ${item.category}` : ''}</p>`}
     <h1>${item.title}</h1>
-    <p class="price big">${item.compareAtCents ? html`<s>${money(item.compareAtCents)}</s> ` : ''}${money(item.priceCents)}</p>
+    <p class="price big">${item.sizes?.length && item.sizes.some((one) => one.priceCents !== item.sizes[0].priceCents) ? html`From ${money(Math.min(...item.sizes.map((one) => one.priceCents)))}` : html`${item.compareAtCents ? html`<s>${money(item.compareAtCents)}</s> ` : ''}${money(item.sizes?.length ? item.sizes[0].priceCents : item.priceCents)}`}</p>
     ${problem ? html`<p class="problem" role="alert">${problem}</p>` : ''}
     ${available ? addToCart(item, ask) : html`<p class="stock gone">${item.status === 'held' || beingBought(item) ? 'On hold for a buyer' : 'Sold'}</p><p class="buy-row"><a class="button ghost" href="${ask}">Ask about it</a></p>`}
-    ${item.fitment.length ? html`<h2>Fits</h2><ul class="fits">${item.fitment.map((f) => html`<li><strong>${PLATFORMS[f.platform]?.label ?? f.platform}</strong> ${describe(f)}</li>`)}</ul>` : ''}
+    ${config.theme.auto && item.fitment.length ? html`<h2>Fits</h2><ul class="fits">${item.fitment.map((f) => html`<li><strong>${PLATFORMS[f.platform]?.label ?? f.platform}</strong> ${describe(f)}</li>`)}</ul>` : ''}
     ${item.description ? html`<h2>Details</h2>${paragraphs(item.description)}` : ''}
-    <p class="quiet">SKU ${item.sku}</p>
+    ${config.theme.auto ? html`<p class="quiet">SKU ${item.sku}</p>` : ''}
   </div>
 </article>
 <script type="application/ld+json">${raw(JSON.stringify(data).replace(/</g, '\\u003c'))}</script>`,
@@ -178,7 +238,8 @@ export function partPage({ config, item, now, problem = '' }) {
 }
 
 export function notFoundPage({ config }) {
-  return storeLayout({ config, title: 'Not found', body: html`<section class="section"><h1>That part isn’t here</h1><p>It may have sold. <a href="/parts">See what’s listed</a> or ask us: much of the stock isn’t online.</p></section>` });
+  const { words } = config.theme;
+  return storeLayout({ config, title: 'Not found', body: html`<section class="section"><h1>That ${words.item} isn’t here</h1><p>${config.theme.gone} <a href="${config.theme.home ? '/' : itemPath(config)}">See what’s for sale</a>.</p></section>` });
 }
 
 /** What a buyer sees when something in the cart or checkout didn't work. */
@@ -217,7 +278,7 @@ export function cartPage({ config, cart, problem = '' }) {
     const [image] = webImages(line.images);
     return html`<li class="cart-line${line.gone || line.short ? ' short' : ''}">
       ${image ? html`<img src="${image}" alt="" width="72" height="72">` : html`<span class="no-photo small"></span>`}
-      <div><a href="/parts/${line.handle}">${lineName(line)}</a>
+      <div><a href="${itemPath(config, line.handle)}">${lineName(line)}</a>
         <p class="quiet">${line.gone ? 'Not for sale any more' : html`${money(line.cents)} each${line.short ? html` · only ${line.left} left` : ''}`}</p></div>
       <form method="post" action="/cart/set" class="qty-form"><input type="hidden" name="item" value="${line.item}">
         <label class="visually-hidden" for="qty-${line.item}">How many</label>
@@ -229,7 +290,7 @@ export function cartPage({ config, cart, problem = '' }) {
   })}</ul>
   <p class="cart-total">Total <strong>${money(cart.cents)}</strong></p>
   ${cart.ready ? html`<p><a class="button" href="/checkout">Check out</a></p>` : html`<p class="quiet">Change or remove what’s marked before checking out.</p>`}`
-  : html`<p>Nothing in it yet. <a href="/parts">See what’s for sale</a>.</p>`}
+  : html`<p>Nothing in it yet. <a href="${config.theme.home ? '/' : itemPath(config)}">See what’s for sale</a>.</p>`}
 </section>`,
   });
 }
@@ -247,7 +308,7 @@ export function checkoutPage({ config, cart, key, platform, problem = '', form =
     body: html`<section class="section checkout">
   <p class="eyebrow">Checkout</p>
   <h1>${money(cart.cents)} for ${cart.count} ${cart.count === 1 ? 'item' : 'items'}</h1>
-  <ul class="cart-summary">${cart.lines.map((line) => html`<li>${line.qty} × ${lineName(line)} <span>${money(line.total)}</span></li>`)}</ul>
+  <ul class="cart-summary">${cart.lines.map((line) => html`<li><span>${line.qty} × ${lineName(line)}</span> <span>${money(line.total)}</span></li>`)}</ul>
   ${problem ? html`<p class="problem" role="alert">${problem}</p>` : ''}
   ${cart.ready ? html`<form method="post" action="/checkout" class="form panel">
     <input type="hidden" name="checkout" value="${key}">
@@ -281,7 +342,7 @@ export function checkoutPage({ config, cart, key, platform, problem = '', form =
 
 /** The cart, the printer's shipping to the buyer's address, and the total: then Pay. */
 export function reviewPage({ config, cart, review, key, platform, form = {}, problem = '' }) {
-  const days = (one) => (one.days?.min && one.days?.max ? ` · arrives in ${one.days.min}–${one.days.max} days` : '');
+  const days = (one) => (one.days?.min && one.days?.max ? `, arrives in ${one.days.min}–${one.days.max} days` : '');
   return storeLayout({
     config,
     title: 'Check and pay',
@@ -290,8 +351,8 @@ export function reviewPage({ config, cart, review, key, platform, form = {}, pro
   <h1>Check and pay</h1>
   ${problem ? html`<p class="problem" role="alert">${problem}</p>` : ''}
   <ul class="cart-summary">
-    ${cart.lines.map((line) => html`<li>${line.qty} × ${lineName(line)} <span>${money(line.total)}</span></li>`)}
-    ${review.shipping.map((one) => html`<li>Shipping from ${one.group === 'lulu' ? 'Lulu' : one.group === 'printful' ? 'Printful' : one.group}: ${one.label}${days(one)} <span>${money(one.cents)}</span></li>`)}
+    ${cart.lines.map((line) => html`<li><span>${line.qty} × ${lineName(line)}</span> <span>${money(line.total)}</span></li>`)}
+    ${review.shipping.map((one) => html`<li><span>Shipping from ${one.group === 'lulu' ? 'Lulu' : one.group === 'printful' ? 'Printful' : one.group}: ${one.label}${days(one)}</span> <span>${money(one.cents)}</span></li>`)}
     <li class="total"><strong>Total</strong> <strong>${money(review.cents)}</strong></li>
   </ul>
   <p>Shipping to ${review.buyer.name}, ${review.buyer.address}.</p>
@@ -311,7 +372,7 @@ const tracking = (shipments) => html`${shipments.map((one) => html`<p>Tracking${
 
 /** After paying (or not): what happened to the order, in plain words. */
 export function orderPage({ config, order, waiting = false }) {
-  const list = html`<ul class="cart-summary">${order.lines.map((line) => html`<li>${line.qty} × ${lineName(line)} <span>${money(line.total)}</span></li>`)}${(order.fees ?? []).map((fee) => html`<li>${fee.label} <span>${money(fee.cents)}</span></li>`)}</ul>`;
+  const list = html`<ul class="cart-summary">${order.lines.map((line) => html`<li><span>${line.qty} × ${lineName(line)}</span> <span>${money(line.total)}</span></li>`)}${(order.fees ?? []).map((fee) => html`<li><span>${fee.label}</span> <span>${money(fee.cents)}</span></li>`)}</ul>`;
   const cancel = `/checkout/cancel?checkout=${encodeURIComponent(order.key)}`;
   const states = {
     paid: html`<h1>It’s yours</h1>${list}<p>You paid ${money(order.cents)}. A receipt comes from the payment platform.</p>
@@ -332,7 +393,7 @@ export function orderPage({ config, order, waiting = false }) {
     body: html`<section class="section">
   <p class="eyebrow">Order</p>
   ${states[order.state] ?? states.paying}
-  <p class="quiet">Questions: <a href="mailto:${config.contactEmail}">${config.contactEmail}</a></p>
+  ${config.contactEmail ? html`<p class="quiet">Questions: <a href="mailto:${config.contactEmail}">${config.contactEmail}</a></p>` : ''}
 </section>`,
   });
 }
