@@ -14,6 +14,8 @@ const shop = createShop({ db, config });
 // The public demo refuses changes to its own sign-ins, so the next visitor can still sign in.
 if (config.demo) shop.accounts = lockedAccounts(shop.accounts);
 const { server } = createWeb({ shop, config });
+// Keep stock in step with the counter, if it's connected.
+if (shop.pos) shop.pos.start();
 
 if (config.demo) {
   // The demo resets every night at 4 am Eastern: the process exits and the host starts it again

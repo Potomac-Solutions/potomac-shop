@@ -4,7 +4,7 @@ A small commerce engine that runs as a whole store or beside an existing site. I
 
 Shown here as **Rix Racing** (DSM and EVO parts, Morgantown, WV), with Ricky's OK: the demo starts from his real listings in Shopify's export format, so it begins the way a real move off Shopify begins.
 
-## What it does today (0.2.0)
+## What it does today (0.3.0)
 
 - **Import from another store.** Shopify (classic and newer export columns), WooCommerce, BigCommerce, Magento / Adobe Commerce, and our own CSV. The platform is recognised from the header row. A preview shows every row as new, update or skipped (with the reason) before anything changes. Each import is one batch that can be undone, unless something in it changed since.
 - **Sell once.** Draft → listed → on hold → sold, or removed. A sold part leaves the store and the feeds, and no import can bring it back. Holds run out on their own.
@@ -18,9 +18,11 @@ Shown here as **Rix Racing** (DSM and EVO parts, Morgantown, WV), with Ricky's O
 - **Photos from the phone.** Taken or chosen on the part's page, kept with the database, served at `/media/…`. HEIC is refused with how to fix it (iPhone converts when choosing from Photos).
 - **AI drafts.** "Draft it with AI" sends the part's photos, the donor car and the owner's notes to Claude, and fills in the title (in the shop's own style), details, category and fitment. Drafts only, the price is never touched, and a monthly budget stops it.
 
-Square's code follows Square's API reference and is tested against a faked Square; run a sandbox payment before taking real money.
+- **The counter (Square point of sale).** With `POS_SYNC=square`, listed parts are created in Square's item library (one item per part, rung up by SKU) with their stock. A sale at the counter marks the part sold here, out of the store and the feeds, within seconds by Square's webhook or within 5 minutes by a check of Square's counts. A sale, hold or unlisting here sets the counter's stock to zero. A restock at the counter raises the quantity of a listed part. Titles and prices are set here and overwrite edits made in Square.
 
-Not yet: eBay Motors, Square and Clover stock sync, buyer accounts, shipping rates. See `docs/plan.md`.
+Square's code (payments and the counter) follows Square's API reference and is tested against a faked Square; run a sandbox payment, refund and counter sale before using it for real.
+
+Not yet: eBay Motors, Clover, buyer accounts, shipping rates. See `docs/plan.md`.
 
 WooCommerce, BigCommerce and Magento follow their documented export columns and have tests against sample files, but no real export from each has been through them yet.
 
@@ -47,6 +49,7 @@ The dashboard is at `/admin`. A new store prints a one-time link for the first o
 | `TRUSTED_PROXIES` | How many proxies add to X-Forwarded-For (1 on Railway, the default in production) |
 | `PAY_PROVIDER` | `square`; unset, or Square's settings incomplete, means the test payment page |
 | `PAY_SQUARE_TOKEN`, `PAY_SQUARE_LOCATION`, `PAY_SQUARE_WEBHOOK_KEY`, `PAY_SQUARE_WEBHOOK_URL`, `PAY_SQUARE_SANDBOX` | Square's access token, location, webhook signature key and the webhook address (`<PUBLIC_URL>/pay/webhook`); `PAY_SQUARE_SANDBOX=1` for Square's sandbox |
+| `POS_SYNC` | `square` keeps stock in step with Square's point of sale, on the same Square settings. The access token needs item and inventory read and write permissions; subscribe the webhook to `payment.updated` and `inventory.count.updated` |
 | `ANTHROPIC_API_KEY` | Turns on AI drafts |
 | `AI_MODEL`, `AI_MONTHLY_DOLLARS`, `AI_INPUT_PER_MTOK`, `AI_OUTPUT_PER_MTOK` | The model (`claude-haiku-5-5`), the monthly budget ($10), and its price per million tokens (set these to the model's real price) |
 | `DATABASE_PATH` | SQLite file; point it at a volume (`data/potomac-shop.db`) |
