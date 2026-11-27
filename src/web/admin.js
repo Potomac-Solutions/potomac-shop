@@ -24,6 +24,8 @@ export const SAY = {
   'bad-price': 'The price has to be an amount, like 45.00.',
   'bad-quantity': 'The quantity has to be a whole number.',
   'sku-taken': 'Another part already has that SKU.',
+  'no-option': 'Name the size, like M or 16 oz.',
+  'option-taken': 'This item already has that size.',
   'unknown-format': 'That file isn’t an export we recognise. Shopify, WooCommerce, BigCommerce, Magento and our own CSV are.',
   'nothing-to-import': 'Nothing in that file could be imported. The preview says why for each row.',
   'changed-since': 'Some of those parts have changed since that import, so it can’t be undone as a whole.',
@@ -112,9 +114,9 @@ export function dashboardPage({ config, who, token, owner, summary, drafts, rece
   <a class="stat" href="/admin/items?status=held"><span>${counts.held}</span>on hold</a>
   <a class="stat" href="/admin/items?status=sold"><span>${counts.sold}</span>sold</a>
 </div>
-${owner && orders.some((o) => o.state === 'paid' || o.state === 'refund-failed') ? html`<section class="panel">
+${owner && orders.some((o) => (o.state === 'paid' && o.step !== 'sent') || o.state === 'refund-failed') ? html`<section class="panel">
   <h2>Orders to fill</h2>
-  ${orderRows(orders.filter((o) => o.state === 'paid' || o.state === 'refund-failed'), now)}
+  ${orderRows(orders.filter((o) => (o.state === 'paid' && o.step !== 'sent') || o.state === 'refund-failed'), now, token)}
   <p><a href="/admin/orders">All orders</a></p>
 </section>` : ''}
 ${summary.noPhoto || summary.noFit ? html`<section class="panel warn">
@@ -230,6 +232,7 @@ ${isNew ? '' : html`<section class="panel">
     <label>Was (optional)<input name="compare_at" inputmode="decimal" value="${item.compareAtCents != null ? (item.compareAtCents / 100).toFixed(2) : ''}"></label>
     <label>Quantity<input name="quantity" inputmode="numeric" value="${item.quantity ?? 1}"></label>
   </div>
+  <label class="check"><input type="checkbox" name="made_to_order" ${item.madeToOrder ? raw('checked') : ''}> Made to order (printed when bought, so it never runs out)</label>
   <div class="cols">
     <label>Condition<select name="condition">${['used', 'new', 'refurbished'].map((c) => html`<option ${c === (item.condition ?? 'used') ? raw('selected') : ''}>${c}</option>`)}</select></label>
     <label>Category<input name="category" value="${value('category')}" placeholder="Drivetrain"></label>
@@ -246,6 +249,7 @@ ${isNew ? '' : html`<section class="panel">
   <button type="submit" class="primary">${isNew ? 'Save as draft' : 'Save changes'}</button>
   </fieldset>
 </form>
+${isNew || item.parentId ? '' : sizesPanel(item, { token, owner })}
 ${isNew ? '' : html`<section class="panel">
   <h2>Post it by hand</h2>
   <p class="quiet">Facebook Marketplace and forums don’t take listings from stores’ software yet. Copy this, add the photos, post it, and mark it sold here when it goes.</p>
@@ -254,6 +258,32 @@ ${isNew ? '' : html`<section class="panel">
 </section>
 <section class="panel"><h2>History</h2>${activityList(history.map((h) => ({ ...h, title: '' })), now)}</section>`}`,
   });
+}
+
+/** Sizes (or any option): each with its own price and stock, bought instead of the item itself. */
+function sizesPanel(item, { token, owner }) {
+  const sizes = item.sizes ?? [];
+  const row = (size) => html`<form method="post" action="/admin/items/${item.id}/sizes" class="size-row">
+    <input type="hidden" name="token" value="${token}"><input type="hidden" name="size" value="${size.id}">
+    <strong>${size.option}</strong>
+    <label>Price<input name="price" inputmode="decimal" value="${(size.priceCents / 100).toFixed(2)}"></label>
+    <label>Stock<input name="quantity" inputmode="numeric" value="${size.quantity}" ${size.madeToOrder ? raw('disabled') : ''}></label>
+    <label class="check"><input type="checkbox" name="made_to_order" ${size.madeToOrder ? raw('checked') : ''}> Made to order</label>
+    ${owner ? html`<button class="small">Save</button>` : ''}
+  </form>`;
+  return html`<section class="panel">
+  <h2>Sizes</h2>
+  <p class="quiet">${sizes.length ? 'Buyers pick one of these; each has its own price and stock.' : 'For shirts, hats and anything that comes in sizes. With sizes, buyers pick one instead of buying the item itself.'}</p>
+  ${sizes.map(row)}
+  ${owner ? html`<form method="post" action="/admin/items/${item.id}/sizes" class="size-row">
+    <input type="hidden" name="token" value="${token}">
+    <label>New size<input name="option" placeholder="M" maxlength="40" required></label>
+    <label>Price<input name="price" inputmode="decimal" value="${(item.priceCents / 100).toFixed(2)}"></label>
+    <label>Stock<input name="quantity" inputmode="numeric" value="0"></label>
+    <label class="check"><input type="checkbox" name="made_to_order" ${item.madeToOrder ? raw('checked') : ''}> Made to order</label>
+    <button class="small primary">Add size</button>
+  </form>` : ''}
+</section>`;
 }
 
 const budgetLine = (ai) => {
@@ -274,16 +304,17 @@ export function marketplaceText(item, config) {
   ].filter(Boolean).join('\n');
 }
 
-const ORDER_STATES = { started: 'Paying', abandoned: 'Not paid', paid: 'To fill', cancelled: 'Cancelled', refunded: 'Refunded (sold elsewhere)', 'refund-failed': 'Refund by hand' };
+const ORDER_STATES = { paying: 'Paying', abandoned: 'Not paid', paid: 'To fill', cancelled: 'Cancelled', refunded: 'Refunded', 'refund-failed': 'Refund by hand' };
+const STEP_WORDS = { paid: 'To fill', packed: 'Packed', sent: 'Sent', refunded: 'Refunded' };
 
-function orderRows(list, now) {
-  // A payment page left open past the hold is an order nobody paid.
-  const stateOf = (o) => (o.state === 'started' && now - o.createdAt > 30 * 60_000 ? 'abandoned' : o.state);
+function orderRows(list, now, token = '') {
+  const badge = (o) => (o.state === 'paid' ? (o.step === 'sent' ? 'sold' : 'active') : o.state === 'refund-failed' ? 'sold' : 'draft');
+  const next = (o) => (o.state !== 'paid' ? null : o.step === 'paid' ? ['packed', 'Mark packed'] : o.step === 'packed' ? ['sent', 'Mark sent'] : null);
   return html`<ul class="rows">${list.map((o) => html`<li class="row"><div class="row-main">
-    <a href="/admin/items/${o.itemId}"><strong>${o.itemTitle}</strong></a> <span class="badge badge-${o.state === 'paid' ? 'active' : o.state === 'refund-failed' ? 'sold' : 'draft'}">${ORDER_STATES[stateOf(o)]}</span>
+    <strong>${o.lines.map((line) => `${line.qty} × ${line.title}${line.option ? ` (${line.option})` : ''}`).join(', ')}</strong> <span class="badge badge-${badge(o)}">${o.state === 'paid' ? STEP_WORDS[o.step] ?? 'To fill' : ORDER_STATES[o.state] ?? o.state}</span>
     <p class="quiet">${money(o.cents)} · ${o.name} · <a href="mailto:${o.email}">${o.email}</a>${o.phone ? html` · <a href="tel:${o.phone}">${o.phone}</a>` : ''} · ${o.delivery === 'pickup' ? 'pickup' : html`ship to ${o.address}`} · ${ago(o.createdAt, now)}</p>
     ${o.note ? html`<p class="warn-text">${o.note}</p>` : ''}
-  </div></li>`)}</ul>`;
+  </div>${token && next(o) ? html`<form method="post" action="/admin/orders/${o.key}/${next(o)[0]}" class="inline"><input type="hidden" name="token" value="${token}"><button class="small primary">${next(o)[1]}</button></form>` : ''}</li>`)}</ul>`;
 }
 
 export function ordersPage({ config, who, token, orders, notice, problem, now }) {
@@ -295,8 +326,8 @@ export function ordersPage({ config, who, token, orders, notice, problem, now })
     problem,
     title: 'Orders',
     body: html`<h1>Orders</h1>
-<p class="quiet">Paid orders: set up pickup, or email the shipping cost. A part is marked sold the moment it’s paid.</p>
-${orders.length ? orderRows(orders, now) : html`<p class="quiet">No orders yet.</p>`}`,
+<p class="quiet">Paid orders: set up pickup, or email the shipping cost, then mark each one packed and sent. A one-of-a-kind part is marked sold the moment it’s paid.</p>
+${orders.length ? orderRows(orders, now, token) : html`<p class="quiet">No orders yet.</p>`}`,
   });
 }
 

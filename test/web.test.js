@@ -43,7 +43,8 @@ test('the store escapes what a file brought in and gives Google structured data'
   assert.ok(!page.includes('<script>alert(1)</script>'));
   assert.ok(page.includes('&lt;script&gt;'));
   assert.match(page, /"@type":"Product"/);
-  assert.match(page, /\/parts\/belts\/buy/);
+  assert.match(page, /action="\/cart\/add"/);
+  assert.match(page, /name="item" value="belts"/);
 });
 
 test('the dashboard needs a signed-in person, and forms need their token and this site', async () => {
@@ -92,22 +93,54 @@ test('a photo uploaded from a phone is stored and served', async () => {
   assert.equal(photo.headers.get('content-type'), 'image/jpeg');
 });
 
-test('a buyer pays on the payment page and the part is sold', async () => {
-  const start = await post('/parts/belts/buy', { name: 'Dana', email: 'dana@example.com', delivery: 'pickup' });
+test('a buyer fills a cart, pays on the payment page, and the part is sold', async () => {
+  const added = await post('/cart/add', { item: 'belts', qty: '1' });
+  assert.equal(added.status, 303);
+  assert.equal(added.headers.get('location'), '/cart');
+  const cookie = added.headers.get('set-cookie').split(';')[0];
+  assert.match(cookie, /^ps_cart=/);
+  const cart = await (await fetch(`${base}/cart`, { headers: { cookie } })).text();
+  assert.match(cart, /seat belts/);
+  assert.match(cart, /Cart <span class="count">1<\/span>/);
+  assert.match(cart, /href="\/checkout"/);
+  const form = await (await fetch(`${base}/checkout`, { headers: { cookie } })).text();
+  const key = /name="checkout" value="([A-Za-z0-9_-]{24})"/.exec(form)[1];
+
+  const forged = await post('/cart/add', { item: 'stalk' }, `ps_cart=${'a'.repeat(22)}.forged`);
+  assert.notEqual(forged.headers.get('set-cookie'), null, 'a forged cart cookie gets a new cart, not that one');
+
+  const start = await post('/checkout', { checkout: key, name: 'Dana', email: 'dana@example.com', delivery: 'pickup' }, cookie);
   assert.equal(start.status, 303);
   const payPage = start.headers.get('location');
   assert.match(payPage, /^\/pay\/test\?ref=/);
-  const shown = await (await fetch(`${base}${payPage}`)).text();
-  assert.match(shown, /Test payment page/);
+  assert.equal(shop.catalog.get('belts').quantity, 0, 'the part is held while the buyer pays');
+  const someoneElse = await post('/cart/add', { item: 'belts' });
+  assert.match(someoneElse.headers.get('location'), /^\/parts\/belts\?problem=/);
+
   const ref = new URL(payPage, base).searchParams.get('ref');
   const paid = await post('/pay/test', { ref, answer: 'pay' });
   const back = paid.headers.get('location');
-  assert.match(back, /\/orders\/[A-Za-z0-9_-]{24}$/);
-  const order = await (await fetch(back.replace('https://rix.example', base))).text();
+  assert.match(back, /\/checkout\/back\?checkout=/);
+  const toOrder = await fetch(back.replace('https://rix.example', base), { headers: { cookie }, redirect: 'manual' });
+  assert.equal(toOrder.headers.get('location'), `/orders/${key}`);
+  const order = await (await fetch(`${base}/orders/${key}`, { headers: { cookie } })).text();
   assert.match(order, /It’s yours/);
   assert.equal(shop.catalog.get('belts').status, 'sold');
-  const again = await post('/parts/belts/buy', { name: 'Late', email: 'late@example.com', delivery: 'pickup' });
-  assert.ok(again.status === 404 || again.status === 409);
+  assert.equal(shop.sales.cart(cookie.replace('ps_cart=', 'cart:').split('.')[0]).lines.length, 0, 'the bought lines leave the cart');
+  assert.equal((await fetch(`${base}/parts/belts/buy`, { redirect: 'manual' })).headers.get('location'), '/parts/belts');
+});
+
+test('an owner moves a paid order along: packed, then sent', async () => {
+  const { cookie, token } = await signIn(OWNER);
+  const [order] = shop.sales.list().filter((one) => one.state === 'paid');
+  const page = await (await fetch(`${base}/admin/orders`, { headers: { cookie } })).text();
+  assert.match(page, /Mark packed/);
+  assert.equal((await post(`/admin/orders/${order.key}/packed`, { token }, cookie)).status, 303);
+  assert.equal(shop.sales.get(order.key).step, 'packed');
+  await post(`/admin/orders/${order.key}/packed`, { token }, cookie);
+  assert.equal(shop.sales.get(order.key).step, 'packed', 'a step is taken once');
+  await post(`/admin/orders/${order.key}/sent`, { token }, cookie);
+  assert.equal(shop.sales.get(order.key).step, 'sent');
 });
 
 test('a notice can only carry words the server signed', async () => {

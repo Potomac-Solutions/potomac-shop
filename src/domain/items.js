@@ -13,7 +13,8 @@ const ok = (patch) => ({ ok: true, patch });
 
 export function publish(item) {
   if (item.status !== 'draft') return { error: 'not-draft' };
-  if (item.quantity < 1) return { error: 'no-stock' };
+  // Made to order, or bought through its sizes: no stock count of its own to check.
+  if (!item.madeToOrder && !item.sizes?.length && item.quantity < 1) return { error: 'no-stock' };
   if (item.priceCents == null || item.priceCents <= 0) return { error: 'no-price' };
   return ok({ status: 'active' });
 }
@@ -49,6 +50,16 @@ export function sell(item, { quantity = 1, cents = item.priceCents, via = 'site'
   const left = item.quantity - quantity;
   if (left > 0) return ok({ quantity: left, status: 'active', heldUntil: null });
   return ok({ quantity: 0, status: 'sold', heldUntil: null, soldCents: cents * quantity, soldAt: now, soldVia: via });
+}
+
+/**
+ * The last one sold online: checkout already took the stock (the count is 0), so this only marks
+ * it sold everywhere. An item with stock left, a size or a made-to-order item stays listed.
+ */
+export function soldOnline(item, { cents = item.priceCents, now }) {
+  if (item.status !== 'active') return { error: 'not-for-sale' };
+  if (item.parentId || item.madeToOrder || item.quantity > 0) return { error: 'still-listed' };
+  return ok({ status: 'sold', heldUntil: null, soldCents: cents, soldAt: now, soldVia: 'site' });
 }
 
 export function archive(item) {

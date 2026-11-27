@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-Payments run on the Potomac kit.
+Payments, the cart and checkout run on the Potomac kit.
+
+- A cart: add parts or sizes, change how many, check out once. Checkout is the kit's (`kit/catalog`, `kit/cart`, `kit/checkout`): every line's stock taken at once, held 30 minutes on the payment page, put back if the buyer backs out or never pays (swept every two minutes). Replaces "Buy it" for one part; old `/parts/<handle>/buy` addresses go to the part.
+- Sizes: an item's sizes each have their own price and stock; owners add them on the item's page. Made-to-order items never run out. Listing an item with sizes or made to order doesn't need stock of its own.
+- Orders are the kit's (`kit/stages`): paid → packed → sent, moved from the Orders page. The old single-part `orders` table stays for history.
+- The kit's `items` are the store's own `items` table (`shopStore`): the kit only ever changes an item's count.
 
 - Checkout uses `kit/pay` and `kit/pay/providers`: Stripe, Square, PayPal, Authorize.net and Clover behind `PAY_PROVIDER`, the kit's test page until that platform is set up. Replaces the store's own Square code.
 - The kit's payments live in the store's database (`kit_documents`, migration 003); payments started before this release move over and still settle and refund.
