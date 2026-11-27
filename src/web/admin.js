@@ -390,7 +390,7 @@ ${lots.length ? html`<ul class="rows">${lots.map((lot) => html`<li class="row"><
   });
 }
 
-export function channelsPage({ config, who, token, items, payment, ai, now }) {
+export function channelsPage({ config, who, token, items, payment, ai, pos, now }) {
   const listed = items.filter((item) => item.status === 'active' || item.status === 'held');
   const inFeed = listed.filter((item) => webImages(item.images).length > 0);
   const live = listed.filter((item) => buyable(item, now));
@@ -408,6 +408,14 @@ export function channelsPage({ config, who, token, items, payment, ai, now }) {
     ? html`<strong>test page</strong> (no money moves). ${payment.asked && payment.asked !== 'test' ? `${payment.asked} is named but its settings aren’t all there.` : 'Set PAY_PROVIDER=square with PAY_SQUARE_TOKEN and PAY_SQUARE_LOCATION to take real payments.'}`
     : html`<strong>${payment.label}</strong>${payment.sandbox ? ' (sandbox: no real money)' : ''}. Webhook address: <code>${config.publicUrl}/pay/webhook</code>`}</p>
   <p>AI drafts: ${ai.enabled ? `on. This month $${ai.budget().spent.toFixed(2)} of $${ai.budget().limit.toFixed(2)}.` : 'off. Set ANTHROPIC_API_KEY to draft listings from photos.'}</p>
+</section>
+<section class="panel">
+  <h2>The counter (Square point of sale)</h2>
+  ${pos ? html`<p>${pos.linked} parts are in Square’s item library. ${pos.due ? html`<strong>${pos.due}</strong> waiting to be sent.` : 'All sent.'}${pos.last ? html` Last sent ${new Date(pos.last).toLocaleString('en-US', { timeZone: 'America/New_York' })}.` : ''}</p>
+  ${pos.error ? html`<p class="problem">Square said: ${pos.error}</p>` : ''}
+  <p class="quiet">Listed parts are rung up at the counter by their SKU. A sale there marks the part sold here and takes it out of the store and the feeds within seconds (or within 5 minutes if Square’s webhook isn’t set). A sale here sets the counter’s stock to zero. Titles and prices are set here.</p>
+  <form method="post" action="/admin/pos/sync"><input type="hidden" name="token" value="${token}"><button class="small">Send changes now</button></form>`
+    : html`<p>Not connected. To ring up these parts at a Square counter and keep stock in step both ways, set <code>POS_SYNC=square</code> with the same Square settings as payments. The Square access token needs item and inventory permissions, and the webhook subscription should include <code>inventory.count.updated</code>.</p>`}
 </section>
 <section class="panel">
   <h2>Google Shopping</h2>
@@ -433,7 +441,7 @@ export function channelsPage({ config, who, token, items, payment, ai, now }) {
 </section>
 <section class="panel quiet">
   <h2>Coming next</h2>
-  <p>eBay Motors with fitment, and two-way stock with Square and Clover at the counter.</p>
+  <p>eBay Motors with fitment, and Clover at the counter.</p>
 </section>`,
   });
 }

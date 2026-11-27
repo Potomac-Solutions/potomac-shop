@@ -35,7 +35,7 @@ const csp = () => [
 ].join('; ');
 
 export function createWeb({ shop, config, now = Date.now }) {
-  const { catalog, accounts, orders, photos, drafts, platform, test } = shop;
+  const { catalog, accounts, orders, photos, drafts, platform, test, pos } = shop;
   const notices = createNotices(config.secret);
   const sign = (text) => createHmac('sha256', config.secret).update(text).digest('base64url');
 
@@ -142,11 +142,13 @@ export function createWeb({ shop, config, now = Date.now }) {
       }
     }
 
-    // The payment platform's webhook.
+    // Square's webhook: payments for orders, and stock counts from the counter.
     if (path === '/pay/webhook' && req.method === 'POST') {
-      const body = (await readBody(req, MAX_BODY)).toString('utf8');
-      const heard = await orders.heard({ headers: req.headers, body, url: `${config.publicUrl}${path}` });
-      return send(res, heard.error ? 401 : 200, heard.error ? 'refused' : 'ok', 'text/plain; charset=utf-8');
+      const body = (await readBody(req, 1024 * 1024)).toString('utf8');
+      const request = { headers: req.headers, body, url: `${config.publicUrl}${path}` };
+      const answers = [await orders.heard(request), ...(pos ? [pos.heard(request)] : [])];
+      const refused = answers.some((a) => a.error === 'bad-signature') && !answers.some((a) => a.ok && !a.ignore);
+      return send(res, refused ? 401 : 200, refused ? 'refused' : 'ok', 'text/plain; charset=utf-8');
     }
 
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed', 'text/plain');
@@ -364,7 +366,13 @@ export function createWeb({ shop, config, now = Date.now }) {
       return result.error ? done(res, '/admin/import', admin.SAY[result.error], 'problem') : done(res, '/admin/import', `Undone: ${result.count} parts put back.`);
     }
 
-    if (path === '/admin/channels' && !form) return page(res, admin.channelsPage({ ...view, items: catalog.list({ limit: 100_000 }), payment: { name: platform.name, label: PLATFORM_NAMES[platform.name], asked: platform.asked, sandbox: platform.sandbox }, ai: drafts }));
+    if (path === '/admin/channels' && !form) return page(res, admin.channelsPage({ ...view, items: catalog.list({ limit: 100_000 }), payment: { name: platform.name, label: PLATFORM_NAMES[platform.name], asked: platform.asked, sandbox: platform.sandbox }, ai: drafts, pos: pos ? pos.status() : null }));
+    if (path === '/admin/pos/sync' && form) {
+      if (!pos) return done(res, '/admin/channels', 'Counter sync isn’t set up.', 'problem');
+      const result = await pos.flush();
+      const after = pos.status();
+      return after.error ? done(res, '/admin/channels', `Square said: ${after.error}`, 'problem') : done(res, '/admin/channels', `Sent ${result.sent} ${result.sent === 1 ? 'part' : 'parts'} to Square.`);
+    }
 
     const exported = /^\/admin\/export\/(csv|shopify)$/.exec(path);
     if (exported && !form) {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 (Nov 27, 2026)
+
+Two-way stock with Square's point of sale (`POS_SYNC=square`).
+
+- Listed parts are created in Square's item library, one item with one variation per part, by SKU and price, with stock tracking on. Changed parts are sent again every 15 seconds; a button on Channels sends at once.
+- A sale at the counter (Square's `inventory.count.updated` webhook, or a check of Square's counts every 5 minutes) marks the part sold here, so it leaves the store and the feeds. A part sold, held, unlisted or removed here counts as zero at the counter. A restock there raises a listed part's quantity.
+- An item edited in Square's dashboard is sent again with Square's current version; titles and prices set here win.
+- Channels shows what's in Square, what's waiting and Square's last refusal.
+
 ## 0.2.0 (Nov 27, 2026)
 
 Checkout, staff accounts, photos from the phone, AI drafts.
